@@ -27,6 +27,13 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@v7
+        with:
+          path: package-lock.json
+          archive: false
+          retention-days: 1
+
       - name: Typecheck
         run: npm run typecheck
 
