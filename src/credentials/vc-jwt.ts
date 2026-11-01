@@ -1,11 +1,6 @@
-import {
-  exportJWK,
-  importJWK,
-  SignJWT,
-  type JWK,
-  type JWTPayload,
-} from 'jose'
+import { SignJWT, type JWK, type JWTPayload } from 'jose'
 
+import { normalizePublicP256Jwk } from './jwk.js'
 import type {
   CredentialSigner,
   OnchainAgeCredential,
@@ -61,13 +56,13 @@ export class VcJwtCredentialSigner
       throw new Error('signatureExpiresAt must be after issuedAt')
     }
 
-    const holderPublicJwk = await normalizePublicP256Jwk(input.holderPublicJwk)
+    const holder = await normalizePublicP256Jwk(input.holderPublicJwk)
     const issuedAt = Math.floor(input.issuedAt.getTime() / 1_000)
     const expiresAt = Math.floor(input.signatureExpiresAt.getTime() / 1_000)
 
     const payload: JWTPayload = {
       ...input.credential,
-      cnf: { jwk: holderPublicJwk },
+      cnf: { jwk: holder.jwk },
     }
 
     const value = await new SignJWT(payload)
@@ -88,28 +83,6 @@ export class VcJwtCredentialSigner
       validUntil: new Date(input.signatureExpiresAt),
     }
   }
-}
-
-async function normalizePublicP256Jwk(jwk: JWK): Promise<JWK> {
-  if ('d' in jwk && jwk.d !== undefined) {
-    throw new Error('holderPublicJwk must not contain private key material')
-  }
-
-  if (jwk.kty !== 'EC' || jwk.crv !== 'P-256') {
-    throw new Error('holderPublicJwk must be an EC P-256 public key')
-  }
-
-  const key = await importJWK(jwk, 'ES256')
-  if (!(key instanceof CryptoKey)) {
-    throw new Error('holderPublicJwk did not import as a Web Crypto key')
-  }
-
-  const normalized = await exportJWK(key)
-  if ('d' in normalized && normalized.d !== undefined) {
-    throw new Error('normalized holder key unexpectedly contains private material')
-  }
-
-  return normalized
 }
 
 function assertValidDate(value: Date, field: string): void {
