@@ -17,6 +17,8 @@ export type IssueOwnershipChallengeInput = Readonly<{
   chainId: number
   domain: string
   uri: string
+  /** Opaque server-side holder/session reference; never expose as reputation. */
+  holderSessionId: string
   now?: Date
   ttlMs?: number
   statement?: string
@@ -35,6 +37,10 @@ export async function issueOwnershipChallenge(
 
   if (!Number.isInteger(input.chainId) || input.chainId <= 0) {
     throw new Error('chainId must be a positive integer')
+  }
+
+  if (input.holderSessionId.trim().length === 0) {
+    throw new Error('holderSessionId must not be empty')
   }
 
   if (
@@ -73,6 +79,7 @@ export async function issueOwnershipChallenge(
     message,
     issuedAt,
     expiresAt,
+    holderSessionId: input.holderSessionId,
   }
 
   await store.save(challenge)
