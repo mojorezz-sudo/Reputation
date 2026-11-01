@@ -1,7 +1,9 @@
 export {
+  EthereumRpcAccountTransactionCountProvider,
   EthereumRpcFinalizedBlockProvider,
   type EthereumJsonRpcClient,
   type EthereumJsonRpcClientResolver,
+  type EthereumJsonRpcRequest,
 } from './finality/index.js'
 export {
   EtherscanHistoryProviderError,
@@ -12,6 +14,7 @@ export {
   type Sleep,
 } from './providers/index.js'
 export type {
+  AccountTransactionCountProvider,
   ChainHistoryProvider,
   FinalizedBlockProvider,
   GetOutboundTransactionsInput,
