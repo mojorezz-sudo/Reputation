@@ -1,5 +1,6 @@
 export type {
   ChainHistoryProvider,
+  FinalizedBlockProvider,
   GetOutboundTransactionsInput,
   HistoryCoverage,
   NormalizedOutboundTransaction,
