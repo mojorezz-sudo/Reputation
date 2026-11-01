@@ -377,7 +377,9 @@ function requireString(value: unknown, field: string): string {
 }
 
 function providerErrorDetail(message: unknown, result: unknown): string | undefined {
-  const candidates = [message, result]
+  // `message` is often only "NOTOK" while `result` contains the actionable
+  // provider reason (rate limit, invalid key, timeout, etc.). Prefer result.
+  const candidates = [result, message]
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.length > 0) {
       return candidate.slice(0, 200)
