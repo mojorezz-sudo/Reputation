@@ -6,9 +6,14 @@ import type {
 /**
  * Development/test store only.
  *
- * `take` removes a challenge before signature verification so two concurrent
- * verification attempts cannot both succeed with the same nonce. An invalid
- * attempt therefore burns the challenge and the holder must request a new one.
+ * `take` consumes a challenge only when the expected holder session matches.
+ * This prevents a signed challenge from being attached to another profile and
+ * avoids letting a different session burn the legitimate holder's challenge.
+ *
+ * Once a matching session consumes the challenge, it is removed before
+ * signature verification so two concurrent verification attempts cannot both
+ * succeed with the same nonce. An invalid same-session attempt therefore burns
+ * the challenge and the holder must request a new one.
  */
 export class InMemoryOwnershipChallengeStore
   implements OwnershipChallengeStore
@@ -23,9 +28,14 @@ export class InMemoryOwnershipChallengeStore
     this.#challenges.set(challenge.nonce, challenge)
   }
 
-  async take(nonce: string): Promise<OwnershipChallenge | undefined> {
+  async take(
+    nonce: string,
+    holderSessionId: string,
+  ): Promise<OwnershipChallenge | undefined> {
     const challenge = this.#challenges.get(nonce)
-    if (!challenge) return undefined
+    if (!challenge || challenge.holderSessionId !== holderSessionId) {
+      return undefined
+    }
 
     this.#challenges.delete(nonce)
     return challenge
