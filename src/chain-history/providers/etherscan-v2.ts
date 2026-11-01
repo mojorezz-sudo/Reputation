@@ -185,7 +185,7 @@ export class EtherscanV2HistoryProvider implements ChainHistoryProvider {
       throw new EtherscanHistoryProviderError('Etherscan HTTP request failed')
     }
 
-    return parseEtherscanEnvelope(payload)
+    return parseEtherscanEnvelope(payload, this.#apiKey)
   }
 }
 
@@ -216,7 +216,10 @@ function assertValidRequest(input: GetOutboundTransactionsInput): void {
   }
 }
 
-function parseEtherscanEnvelope(payload: unknown): readonly unknown[] {
+function parseEtherscanEnvelope(
+  payload: unknown,
+  apiKey: string,
+): readonly unknown[] {
   if (!isRecord(payload)) {
     throw new EtherscanHistoryProviderError('Malformed Etherscan response envelope')
   }
@@ -236,7 +239,7 @@ function parseEtherscanEnvelope(payload: unknown): readonly unknown[] {
   }
 
   if (status !== '1' || !Array.isArray(result)) {
-    const detail = providerErrorDetail(message, result)
+    const detail = providerErrorDetail(message, result, apiKey)
     throw new EtherscanHistoryProviderError(
       detail ? `Etherscan rejected the request: ${detail}` : 'Etherscan rejected the request',
     )
@@ -376,13 +379,17 @@ function requireString(value: unknown, field: string): string {
   return value
 }
 
-function providerErrorDetail(message: unknown, result: unknown): string | undefined {
+function providerErrorDetail(
+  message: unknown,
+  result: unknown,
+  apiKey: string,
+): string | undefined {
   // `message` is often only "NOTOK" while `result` contains the actionable
   // provider reason (rate limit, invalid key, timeout, etc.). Prefer result.
   const candidates = [result, message]
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.length > 0) {
-      return candidate.slice(0, 200)
+      return candidate.replaceAll(apiKey, '[REDACTED]').slice(0, 200)
     }
   }
   return undefined
