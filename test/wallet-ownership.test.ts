@@ -15,6 +15,7 @@ const OTHER_PRIVATE_KEY =
 const holder = privateKeyToAccount(HOLDER_PRIVATE_KEY)
 const other = privateKeyToAccount(OTHER_PRIVATE_KEY)
 const issuedAt = new Date('2026-11-01T16:00:00.000Z')
+const HOLDER_SESSION_ID = 'holder-session-a'
 
 function createStore() {
   return new InMemoryOwnershipChallengeStore()
@@ -27,6 +28,7 @@ async function issue(store: InMemoryOwnershipChallengeStore) {
       chainId: 1,
       domain: 'reputation.test',
       uri: 'https://reputation.test/wallet-link',
+      holderSessionId: HOLDER_SESSION_ID,
       now: issuedAt,
       ttlMs: 5 * 60 * 1_000,
     },
@@ -34,18 +36,27 @@ async function issue(store: InMemoryOwnershipChallengeStore) {
   )
 }
 
+function verificationInput(
+  challenge: Awaited<ReturnType<typeof issue>>,
+  signature: `0x${string}`,
+  holderSessionId = HOLDER_SESSION_ID,
+) {
+  return {
+    message: challenge.message,
+    signature,
+    holderSessionId,
+    now: new Date('2026-11-01T16:01:00.000Z'),
+  } as const
+}
+
 describe('wallet ownership', () => {
-  test('accepts a valid SIWE proof for the issued wallet', async () => {
+  test('accepts a valid SIWE proof for the issued wallet and session', async () => {
     const store = createStore()
     const challenge = await issue(store)
     const signature = await holder.signMessage({ message: challenge.message })
 
     const result = await verifyOwnershipProof(
-      {
-        message: challenge.message,
-        signature,
-        now: new Date('2026-11-01T16:01:00.000Z'),
-      },
+      verificationInput(challenge, signature),
       store,
     )
 
@@ -60,16 +71,10 @@ describe('wallet ownership', () => {
     const store = createStore()
     const challenge = await issue(store)
     const signature = await holder.signMessage({ message: challenge.message })
-    const now = new Date('2026-11-01T16:01:00.000Z')
+    const input = verificationInput(challenge, signature)
 
-    const first = await verifyOwnershipProof(
-      { message: challenge.message, signature, now },
-      store,
-    )
-    const replay = await verifyOwnershipProof(
-      { message: challenge.message, signature, now },
-      store,
-    )
+    const first = await verifyOwnershipProof(input, store)
+    const replay = await verifyOwnershipProof(input, store)
 
     expect(first.ok).toBe(true)
     expect(replay).toEqual({
@@ -78,17 +83,35 @@ describe('wallet ownership', () => {
     })
   })
 
+  test('rejects another holder session without consuming the real challenge', async () => {
+    const store = createStore()
+    const challenge = await issue(store)
+    const signature = await holder.signMessage({ message: challenge.message })
+
+    const wrongSession = await verifyOwnershipProof(
+      verificationInput(challenge, signature, 'holder-session-b'),
+      store,
+    )
+
+    expect(wrongSession).toEqual({
+      ok: false,
+      reason: 'challenge_not_found_or_consumed',
+    })
+
+    const legitimateSession = await verifyOwnershipProof(
+      verificationInput(challenge, signature),
+      store,
+    )
+    expect(legitimateSession.ok).toBe(true)
+  })
+
   test('rejects a signature from a different wallet', async () => {
     const store = createStore()
     const challenge = await issue(store)
     const signature = await other.signMessage({ message: challenge.message })
 
     const result = await verifyOwnershipProof(
-      {
-        message: challenge.message,
-        signature,
-        now: new Date('2026-11-01T16:01:00.000Z'),
-      },
+      verificationInput(challenge, signature),
       store,
     )
 
@@ -103,6 +126,7 @@ describe('wallet ownership', () => {
         chainId: 1,
         domain: 'reputation.test',
         uri: 'https://reputation.test/wallet-link',
+        holderSessionId: HOLDER_SESSION_ID,
         now: issuedAt,
         ttlMs: 60_000,
       },
@@ -114,6 +138,7 @@ describe('wallet ownership', () => {
       {
         message: challenge.message,
         signature,
+        holderSessionId: HOLDER_SESSION_ID,
         now: new Date('2026-11-01T16:01:00.001Z'),
       },
       store,
@@ -135,6 +160,7 @@ describe('wallet ownership', () => {
       {
         message: tamperedMessage,
         signature,
+        holderSessionId: HOLDER_SESSION_ID,
         now: new Date('2026-11-01T16:01:00.000Z'),
       },
       store,
@@ -151,6 +177,7 @@ describe('wallet ownership', () => {
       {
         message: 'not a SIWE message',
         signature: '0x00',
+        holderSessionId: HOLDER_SESSION_ID,
         now: new Date('2026-11-01T16:01:00.000Z'),
       },
       store,
@@ -160,11 +187,7 @@ describe('wallet ownership', () => {
 
     const signature = await holder.signMessage({ message: challenge.message })
     const valid = await verifyOwnershipProof(
-      {
-        message: challenge.message,
-        signature,
-        now: new Date('2026-11-01T16:01:00.000Z'),
-      },
+      verificationInput(challenge, signature),
       store,
     )
     expect(valid.ok).toBe(true)
@@ -180,6 +203,7 @@ describe('wallet ownership', () => {
           chainId: 1,
           domain: 'reputation.test',
           uri: 'https://reputation.test/wallet-link',
+          holderSessionId: HOLDER_SESSION_ID,
           now: issuedAt,
           ttlMs: 10 * 60 * 1_000 + 1,
         },
