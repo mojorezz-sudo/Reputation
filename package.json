@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "jose": "6.2.14",
     "viem": "2.57.14"
   },
   "devDependencies": {
