@@ -123,6 +123,7 @@ describe('OnchainAge v0.1', () => {
 
   test('returns unverifiable when partial history contains no qualifying old evidence', () => {
     const recent = transaction({
+      blockNumber: 18_500_000n,
       timestamp: new Date('2025-01-01T00:00:00.000Z'),
     })
     const result = evaluate(
@@ -201,6 +202,19 @@ describe('OnchainAge v0.1', () => {
     expect(result).toMatchObject({
       status: 'unverifiable',
       reason: 'transaction_sender_mismatch',
+    })
+  })
+
+  test('fails closed when a transaction lies outside declared coverage', () => {
+    const result = evaluate(
+      history([transaction({ blockNumber: 9_999_999n })], {
+        fromBlock: 10_000_000n,
+      }),
+    )
+
+    expect(result).toMatchObject({
+      status: 'unverifiable',
+      reason: 'transaction_outside_coverage',
     })
   })
 
