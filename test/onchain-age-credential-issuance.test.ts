@@ -34,6 +34,17 @@ function ownership(verifiedAt = new Date('2026-11-01T16:59:00.000Z')) {
   }
 }
 
+function coverage(complete = true) {
+  return {
+    providerId: 'etherscan-v2',
+    chainId: 1,
+    fromBlock: 0n,
+    throughBlock: 21_000_000n,
+    fetchedAt: new Date('2026-11-01T16:58:00.000Z'),
+    complete,
+  }
+}
+
 function satisfiedEvaluation() {
   return {
     methodologyVersion: ONCHAIN_AGE_METHODOLOGY_VERSION,
@@ -45,14 +56,27 @@ function satisfiedEvaluation() {
       transactionIndex: 7,
       timestamp: new Date('2024-01-01T00:00:00.000Z'),
     },
-    coverage: {
-      providerId: 'etherscan-v2',
-      chainId: 1,
-      fromBlock: 0n,
-      throughBlock: 21_000_000n,
-      fetchedAt: new Date('2026-11-01T16:58:00.000Z'),
-      complete: true,
-    },
+    coverage: coverage(),
+  }
+}
+
+function notSatisfiedEvaluation() {
+  return {
+    methodologyVersion: ONCHAIN_AGE_METHODOLOGY_VERSION,
+    status: 'not_satisfied' as const,
+    thresholdDate: new Date(THRESHOLD),
+    reason: 'no_qualifying_activity' as const,
+    coverage: coverage(),
+  }
+}
+
+function unverifiableEvaluation() {
+  return {
+    methodologyVersion: ONCHAIN_AGE_METHODOLOGY_VERSION,
+    status: 'unverifiable' as const,
+    thresholdDate: new Date(THRESHOLD),
+    reason: 'incomplete_history' as const,
+    coverage: coverage(false),
   }
 }
 
@@ -190,12 +214,7 @@ describe('OnchainAge credential issuance', () => {
       }),
     }
     const evaluator: OnchainAgeEvaluator = {
-      evaluate: async () => ({
-        ...satisfiedEvaluation(),
-        status: 'not_satisfied' as const,
-        reason: 'no_qualifying_activity' as const,
-        evidence: undefined as never,
-      }),
+      evaluate: async () => notSatisfiedEvaluation(),
     }
     const issuer = new OnchainAgeCredentialIssuer({
       issuer: ISSUER,
@@ -225,20 +244,7 @@ describe('OnchainAge credential issuance', () => {
       }),
     }
     const evaluator: OnchainAgeEvaluator = {
-      evaluate: async () => ({
-        methodologyVersion: ONCHAIN_AGE_METHODOLOGY_VERSION,
-        status: 'unverifiable',
-        thresholdDate: new Date(THRESHOLD),
-        reason: 'incomplete_history',
-        coverage: {
-          providerId: 'etherscan-v2',
-          chainId: 1,
-          fromBlock: 0n,
-          throughBlock: 21_000_000n,
-          fetchedAt: new Date('2026-11-01T16:58:00.000Z'),
-          complete: false,
-        },
-      }),
+      evaluate: async () => unverifiableEvaluation(),
     }
     const issuer = new OnchainAgeCredentialIssuer({
       issuer: ISSUER,
