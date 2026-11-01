@@ -16,6 +16,8 @@ export const eoaMessageSignatureVerifier: MessageSignatureVerifier = {
 export type VerifyOwnershipProofInput = Readonly<{
   message: string
   signature: Hex
+  /** Opaque server-side holder/session reference expected for this challenge. */
+  holderSessionId: string
   now?: Date
 }>
 
@@ -25,7 +27,7 @@ export async function verifyOwnershipProof(
   signatureVerifier: MessageSignatureVerifier = eoaMessageSignatureVerifier,
 ): Promise<OwnershipVerificationResult> {
   const now = input.now ?? new Date()
-  if (Number.isNaN(now.getTime())) {
+  if (Number.isNaN(now.getTime()) || input.holderSessionId.trim().length === 0) {
     return { ok: false, reason: 'malformed_message' }
   }
 
@@ -40,9 +42,10 @@ export async function verifyOwnershipProof(
     return { ok: false, reason: 'malformed_message' }
   }
 
-  // Single-use semantics are enforced before cryptographic verification.
-  // An invalid attempt burns the challenge; the holder requests a new one.
-  const challenge = await store.take(parsed.nonce)
+  // The store atomically enforces both session binding and single-use semantics.
+  // A different session receives the same public failure as a missing nonce and
+  // does not consume the legitimate holder's challenge.
+  const challenge = await store.take(parsed.nonce, input.holderSessionId)
   if (!challenge) {
     return { ok: false, reason: 'challenge_not_found_or_consumed' }
   }
