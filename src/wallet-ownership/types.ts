@@ -9,11 +9,25 @@ export type OwnershipChallenge = Readonly<{
   message: string
   issuedAt: Date
   expiresAt: Date
+  /**
+   * Opaque server-side session/profile binding. This value is intentionally
+   * not embedded in the public SIWE message or verifier-facing output.
+   */
+  holderSessionId: string
 }>
 
 export interface OwnershipChallengeStore {
   save(challenge: OwnershipChallenge): Promise<void>
-  take(nonce: string): Promise<OwnershipChallenge | undefined>
+
+  /**
+   * Atomically consumes the challenge only when it belongs to the expected
+   * holder session. A session mismatch must be indistinguishable from a
+   * missing/consumed nonce to callers.
+   */
+  take(
+    nonce: string,
+    holderSessionId: string,
+  ): Promise<OwnershipChallenge | undefined>
 }
 
 export interface MessageSignatureVerifier {
