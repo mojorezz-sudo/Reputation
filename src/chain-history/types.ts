@@ -48,3 +48,12 @@ export interface ChainHistoryProvider {
     input: GetOutboundTransactionsInput,
   ): Promise<OutboundTransactionHistory>
 }
+
+/**
+ * Independent finality boundary used by history adapters. A vendor that
+ * supplies account history must not implicitly decide how far reputation data
+ * is considered finalized.
+ */
+export interface FinalizedBlockProvider {
+  getFinalizedBlockNumber(input: { chainId: number }): Promise<bigint>
+}
