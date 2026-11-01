@@ -1,4 +1,4 @@
-import { isAddressEqual, type Address, type Hex } from 'viem'
+import { isAddress, isAddressEqual, type Address, type Hex } from 'viem'
 
 import type {
   HistoryCoverage,
@@ -21,6 +21,7 @@ export type OnchainAgeUnverifiableReason =
   | 'invalid_coverage'
   | 'transaction_chain_mismatch'
   | 'transaction_sender_mismatch'
+  | 'transaction_outside_coverage'
   | 'invalid_transaction_block'
   | 'invalid_transaction_index'
   | 'invalid_transaction_timestamp'
@@ -81,6 +82,7 @@ export function evaluateOnchainAge(
     input.history.transactions,
     input.chainId,
     input.holderAddress,
+    coverage,
   )
   if (transactionProblem) {
     return {
@@ -128,6 +130,10 @@ function assertValidRequest(input: EvaluateOnchainAgeInput): void {
     throw new Error('chainId must be a positive integer')
   }
 
+  if (!isAddress(input.holderAddress)) {
+    throw new Error('holderAddress must be a valid EVM address')
+  }
+
   if (Number.isNaN(input.thresholdDate.getTime())) {
     throw new Error('thresholdDate must be a valid Date')
   }
@@ -158,10 +164,15 @@ function validateTransactions(
   transactions: readonly NormalizedOutboundTransaction[],
   expectedChainId: number,
   holderAddress: Address,
+  coverage: HistoryCoverage,
 ): OnchainAgeUnverifiableReason | undefined {
   for (const transaction of transactions) {
     if (transaction.chainId !== expectedChainId) {
       return 'transaction_chain_mismatch'
+    }
+
+    if (!isAddress(transaction.from)) {
+      return 'transaction_sender_mismatch'
     }
 
     if (!isAddressEqual(transaction.from, holderAddress)) {
@@ -170,6 +181,13 @@ function validateTransactions(
 
     if (transaction.blockNumber < 0n) {
       return 'invalid_transaction_block'
+    }
+
+    if (
+      transaction.blockNumber < coverage.fromBlock ||
+      transaction.blockNumber > coverage.throughBlock
+    ) {
+      return 'transaction_outside_coverage'
     }
 
     if (
