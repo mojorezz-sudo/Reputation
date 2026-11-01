@@ -80,7 +80,7 @@ function providerWithResponses(
     pageSize: overrides.pageSize ?? 2,
     maxPages: overrides.maxPages ?? 10,
     requestIntervalMs: overrides.requestIntervalMs ?? 0,
-    sleep: overrides.sleep,
+    ...(overrides.sleep ? { sleep: overrides.sleep } : {}),
   })
 
   return { provider, urls }
