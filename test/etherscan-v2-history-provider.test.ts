@@ -4,6 +4,7 @@ import type { Address } from 'viem'
 import {
   EtherscanHistoryProviderError,
   EtherscanV2HistoryProvider,
+  type AccountTransactionCountProvider,
   type FinalizedBlockProvider,
   type JsonHttpGet,
 } from '../src/chain-history/index.js'
@@ -16,6 +17,14 @@ function finalizedAt(blockNumber = 21_000_000n): FinalizedBlockProvider {
   return {
     async getFinalizedBlockNumber() {
       return blockNumber
+    },
+  }
+}
+
+function transactionCountAt(count: bigint): AccountTransactionCountProvider {
+  return {
+    async getTransactionCount() {
+      return count
     },
   }
 }
@@ -57,6 +66,7 @@ function providerWithResponses(
     maxPages?: number
     requestIntervalMs?: number
     sleep?: (milliseconds: number) => Promise<void>
+    transactionCount?: bigint | null
   } = {},
 ) {
   const urls: URL[] = []
@@ -72,9 +82,15 @@ function providerWithResponses(
     return response
   }
 
+  const transactionCount =
+    overrides.transactionCount === undefined ? 1n : overrides.transactionCount
+
   const provider = new EtherscanV2HistoryProvider({
     apiKey: API_KEY,
     finalizedBlockProvider: finalizedAt(),
+    ...(transactionCount === null
+      ? {}
+      : { transactionCountProvider: transactionCountAt(transactionCount) }),
     httpGet,
     clock: () => new Date('2026-11-01T16:00:00.000Z'),
     pageSize: overrides.pageSize ?? 2,
@@ -87,7 +103,7 @@ function providerWithResponses(
 }
 
 describe('EtherscanV2HistoryProvider', () => {
-  test('freezes the finalized block boundary and normalizes an outbound zero-value call', async () => {
+  test('freezes finality, normalizes an outbound zero-value call, and proves completeness with an independent count', async () => {
     const { provider, urls } = providerWithResponses([ok([etherscanRow()])])
 
     const history = await provider.getOutboundTransactions({
@@ -139,10 +155,10 @@ describe('EtherscanV2HistoryProvider', () => {
       transactionIndex: '3',
     })
 
-    const { provider, urls } = providerWithResponses([
-      ok([first, second]),
-      ok([third]),
-    ])
+    const { provider, urls } = providerWithResponses(
+      [ok([first, second]), ok([third])],
+      { transactionCount: 3n },
+    )
 
     const history = await provider.getOutboundTransactions({
       chainId: 1,
@@ -157,10 +173,11 @@ describe('EtherscanV2HistoryProvider', () => {
     )
   })
 
-  test('accepts the narrow empty-but-valid Etherscan envelope', async () => {
-    const { provider } = providerWithResponses([
-      { status: '0', message: 'No transactions found', result: [] },
-    ])
+  test('accepts the narrow empty-but-valid Etherscan envelope when the independent count is zero', async () => {
+    const { provider } = providerWithResponses(
+      [{ status: '0', message: 'No transactions found', result: [] }],
+      { transactionCount: 0n },
+    )
 
     const history = await provider.getOutboundTransactions({
       chainId: 1,
@@ -169,6 +186,34 @@ describe('EtherscanV2HistoryProvider', () => {
 
     expect(history.transactions).toEqual([])
     expect(history.coverage.complete).toBe(true)
+  })
+
+  test('never claims complete history when no independent count provider is configured', async () => {
+    const { provider } = providerWithResponses([ok([etherscanRow()])], {
+      transactionCount: null,
+    })
+
+    const history = await provider.getOutboundTransactions({
+      chainId: 1,
+      address: HOLDER,
+    })
+
+    expect(history.transactions).toHaveLength(1)
+    expect(history.coverage.complete).toBe(false)
+  })
+
+  test('marks coverage incomplete when Etherscan rows do not match the independent account count', async () => {
+    const { provider } = providerWithResponses([ok([etherscanRow()])], {
+      transactionCount: 2n,
+    })
+
+    const history = await provider.getOutboundTransactions({
+      chainId: 1,
+      address: HOLDER,
+    })
+
+    expect(history.transactions).toHaveLength(1)
+    expect(history.coverage.complete).toBe(false)
   })
 
   test('filters valid inbound rows from the outbound provider contract', async () => {
@@ -187,6 +232,7 @@ describe('EtherscanV2HistoryProvider', () => {
 
     expect(history.transactions).toHaveLength(1)
     expect(history.transactions[0]?.hash).toBe(`0x${'22'.repeat(32)}`)
+    expect(history.coverage.complete).toBe(true)
   })
 
   test('normalizes contract creation to a null destination', async () => {
@@ -213,10 +259,10 @@ describe('EtherscanV2HistoryProvider', () => {
       isError: '0',
       txreceipt_status: '0',
     })
-    const { provider } = providerWithResponses([
-      ok([viaIsError, viaReceipt]),
-      ok([]),
-    ])
+    const { provider } = providerWithResponses(
+      [ok([viaIsError, viaReceipt]), ok([])],
+      { transactionCount: 2n },
+    )
 
     const history = await provider.getOutboundTransactions({
       chainId: 1,
@@ -227,12 +273,13 @@ describe('EtherscanV2HistoryProvider', () => {
       'failed',
       'failed',
     ])
+    expect(history.coverage.complete).toBe(true)
   })
 
   test('fails rather than claiming complete coverage when the safety page limit is exhausted', async () => {
     const { provider } = providerWithResponses(
       [ok([etherscanRow(), etherscanRow({ hash: `0x${'22'.repeat(32)}` })])],
-      { maxPages: 1 },
+      { maxPages: 1, transactionCount: 2n },
     )
 
     await expect(
@@ -261,6 +308,7 @@ describe('EtherscanV2HistoryProvider', () => {
     const provider = new EtherscanV2HistoryProvider({
       apiKey: API_KEY,
       finalizedBlockProvider: finalizedAt(),
+      transactionCountProvider: transactionCountAt(1n),
       httpGet: async (url) => {
         throw new Error(`network failed for ${url.toString()}`)
       },
@@ -305,7 +353,7 @@ describe('EtherscanV2HistoryProvider', () => {
         ok([etherscanRow(), etherscanRow({ hash: `0x${'22'.repeat(32)}` })]),
         ok([]),
       ],
-      { requestIntervalMs: 350, sleep },
+      { requestIntervalMs: 350, sleep, transactionCount: 2n },
     )
 
     await provider.getOutboundTransactions({ chainId: 1, address: HOLDER })
