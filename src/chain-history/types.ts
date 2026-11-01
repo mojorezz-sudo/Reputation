@@ -48,3 +48,29 @@ export interface ChainHistoryProvider {
     input: GetOutboundTransactionsInput,
   ): Promise<OutboundTransactionHistory>
 }
+
+/**
+ * Independent finality boundary used by history adapters. A vendor that
+ * supplies account history must not implicitly decide how far reputation data
+ * is considered finalized.
+ */
+export interface FinalizedBlockProvider {
+  getFinalizedBlockNumber(input: { chainId: number }): Promise<bigint>
+}
+
+/**
+ * Independent completeness signal for EOA-style normal transaction history.
+ * At a fixed block, an EOA account nonce/transaction count can be compared to
+ * the number of observed outbound normal transactions from genesis.
+ *
+ * A mismatch must never be interpreted as complete history. Contract/smart
+ * accounts may not satisfy this EOA invariant and should therefore remain
+ * unverifiable until a wallet-class-specific completeness method exists.
+ */
+export interface AccountTransactionCountProvider {
+  getTransactionCount(input: {
+    chainId: number
+    address: Address
+    blockNumber: bigint
+  }): Promise<bigint>
+}
