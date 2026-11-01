@@ -42,7 +42,7 @@ describe('EthereumRpcFinalizedBlockProvider', () => {
 
     await expect(
       provider.getFinalizedBlockNumber({ chainId: 8453 }),
-    ).rejects.toThrow('No finalized-block RPC client configured')
+    ).rejects.toThrow('No Ethereum RPC client configured')
   })
 
   test('fails closed when the RPC does not return a block object', async () => {
