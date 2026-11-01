@@ -7,6 +7,7 @@ import {
 } from 'viem'
 
 import type {
+  AccountTransactionCountProvider,
   ChainHistoryProvider,
   FinalizedBlockProvider,
   GetOutboundTransactionsInput,
@@ -31,6 +32,12 @@ export type Clock = () => Date
 export type EtherscanV2HistoryProviderOptions = Readonly<{
   apiKey: string
   finalizedBlockProvider: FinalizedBlockProvider
+  /**
+   * Optional independent completeness check for EOA-style accounts. Without
+   * this provider, pagination exhaustion is useful evidence but is not enough
+   * to assert complete history for a negative reputation claim.
+   */
+  transactionCountProvider?: AccountTransactionCountProvider
   httpGet?: JsonHttpGet
   sleep?: Sleep
   clock?: Clock
@@ -44,6 +51,7 @@ export class EtherscanV2HistoryProvider implements ChainHistoryProvider {
 
   readonly #apiKey: string
   readonly #finalizedBlockProvider: FinalizedBlockProvider
+  readonly #transactionCountProvider: AccountTransactionCountProvider | undefined
   readonly #httpGet: JsonHttpGet
   readonly #sleep: Sleep
   readonly #clock: Clock
@@ -79,6 +87,7 @@ export class EtherscanV2HistoryProvider implements ChainHistoryProvider {
 
     this.#apiKey = apiKey
     this.#finalizedBlockProvider = options.finalizedBlockProvider
+    this.#transactionCountProvider = options.transactionCountProvider
     this.#httpGet = options.httpGet ?? defaultJsonHttpGet
     this.#sleep = options.sleep ?? defaultSleep
     this.#clock = options.clock ?? (() => new Date())
@@ -146,6 +155,13 @@ export class EtherscanV2HistoryProvider implements ChainHistoryProvider {
       )
     }
 
+    const complete = await this.#verifyCompleteness({
+      address,
+      chainId: input.chainId,
+      finalizedBlock,
+      observedOutboundTransactions: transactions.length,
+    })
+
     return {
       coverage: {
         providerId: this.id,
@@ -153,10 +169,33 @@ export class EtherscanV2HistoryProvider implements ChainHistoryProvider {
         fromBlock: 0n,
         throughBlock: finalizedBlock,
         fetchedAt,
-        complete: true,
+        complete,
       },
       transactions,
     }
+  }
+
+  async #verifyCompleteness(input: {
+    address: Address
+    chainId: number
+    finalizedBlock: bigint
+    observedOutboundTransactions: number
+  }): Promise<boolean> {
+    if (!this.#transactionCountProvider) return false
+
+    const expected = await this.#transactionCountProvider.getTransactionCount({
+      chainId: input.chainId,
+      address: input.address,
+      blockNumber: input.finalizedBlock,
+    })
+
+    if (expected < 0n) {
+      throw new EtherscanHistoryProviderError(
+        'Transaction count provider returned an invalid negative count',
+      )
+    }
+
+    return expected === BigInt(input.observedOutboundTransactions)
   }
 
   async #requestPage(input: {
