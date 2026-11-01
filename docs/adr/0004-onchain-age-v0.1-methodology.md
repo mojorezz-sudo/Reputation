@@ -87,9 +87,12 @@ The evaluator fails closed with `unverifiable` when normalized history is intern
 - coverage chain does not match requested chain
 - any transaction belongs to another chain
 - any transaction `from` address differs from the requested holder wallet
+- any transaction lies outside the provider's declared block-coverage interval
 - invalid timestamps
-- negative block numbers
+- negative block numbers or invalid transaction indices
 - coverage range is invalid
+
+The transaction-within-coverage check is deliberate: an adapter may not claim coverage over one range while supplying reputation evidence from outside that range. This prevents a buggy or malicious normalizer from smuggling unsupported evidence into an otherwise plausible result.
 
 The methodology does not silently discard inconsistent rows because that could turn adapter bugs or malicious data into incorrect reputation claims.
 
@@ -135,6 +138,8 @@ At minimum:
 7. complete-from-genesis coverage with no old evidence -> `not_satisfied`
 8. wrong-chain row -> `unverifiable`
 9. wrong-from row -> `unverifiable`
+10. transaction outside declared block coverage -> `unverifiable`
+11. invalid coverage range or timestamp -> `unverifiable`
 
 ## Revisit if
 
