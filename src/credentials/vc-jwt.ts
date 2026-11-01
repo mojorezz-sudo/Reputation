@@ -74,6 +74,7 @@ export class VcJwtCredentialSigner
       .setProtectedHeader({
         alg: 'ES256',
         typ: 'vc+jwt',
+        cty: 'vc',
         kid: this.#kid,
       })
       .setIssuer(this.#issuer)
