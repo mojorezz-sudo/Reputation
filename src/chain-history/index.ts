@@ -1,4 +1,9 @@
 export {
+  EthereumRpcFinalizedBlockProvider,
+  type EthereumJsonRpcClient,
+  type EthereumJsonRpcClientResolver,
+} from './finality/index.js'
+export {
   EtherscanHistoryProviderError,
   EtherscanV2HistoryProvider,
   type Clock,
