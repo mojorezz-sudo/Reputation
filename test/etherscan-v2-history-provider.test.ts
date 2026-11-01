@@ -8,7 +8,7 @@ import {
   type JsonHttpGet,
 } from '../src/chain-history/index.js'
 
-const HOLDER = '0x00000000000000000000000000000000000000a1' as Address
+const HOLDER = '0x00000000000000000000000000000000000000A1' as Address
 const OTHER = '0x00000000000000000000000000000000000000b2' as Address
 const API_KEY = 'super-secret-test-key'
 
