@@ -57,6 +57,19 @@ Numerical thresholds and methodologies are provisional until adversarial testing
 - W3C Verifiable Credentials Data Model 2.0
 - OpenID for Verifiable Credential Issuance 1.0
 - OpenID for Verifiable Presentations 1.0
+- ERC-4361 Sign-In with Ethereum for Sprint 1 wallet-control proof
+
+## Sprint 1 decisions and specs
+
+- `docs/adr/0002-sprint-1-foundation.md`
+- `docs/specs/wallet-ownership-v0.1.md`
+- `docs/specs/onchain-age-v0.1.md`
+
+Sprint 1 starts with Ethereum mainnet but keeps chain data behind provider-neutral interfaces. The first implementation target is:
+
+`wallet ownership -> OnchainAge -> credential -> verifier`
+
+Only after that flow is deterministic, replay-resistant and privacy-reviewed do we add a lending protocol adapter and `LendingHistory`.
 
 ## Project workflow
 
@@ -72,14 +85,6 @@ Major decisions should document:
 - advantages
 - risks
 - conditions that would trigger reconsideration
-
-## Sprint 1 — Proof of Reputation
-
-The first technical target is deliberately narrow:
-
-`wallet ownership -> OnchainAge -> credential -> verifier`
-
-Only after that flow is deterministic, replay-resistant and privacy-reviewed do we add a lending protocol adapter and `LendingHistory`.
 
 ## Security rule
 
