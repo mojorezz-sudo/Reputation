@@ -1,4 +1,4 @@
-import { verifyMessage, type Hex } from 'viem'
+import { verifyMessage, type Address, type Hex } from 'viem'
 import { parseSiweMessage, validateSiweMessage } from 'viem/siwe'
 
 import type {
@@ -7,6 +7,26 @@ import type {
   OwnershipVerificationResult,
 } from './types.js'
 
+export const MAX_CHALLENGE_CLOCK_SKEW_MS = 30_000
+
+/**
+ * Production can inject a public client bound to the declared chain to
+ * support ERC-1271/6492 (depending on the client's capabilities). The caller
+ * must configure the client against a trusted RPC and the expected chain.
+ */
+export function createChainAwareMessageSignatureVerifier(
+  chainId: number,
+  client: { verifyMessage(args: { address: Address; message: string; signature: Hex }): Promise<boolean> },
+): MessageSignatureVerifier {
+  return {
+    async verify(input) {
+      if (input.chainId !== chainId) return false
+      return client.verifyMessage({ address: input.address, message: input.message, signature: input.signature })
+    },
+  }
+}
+
+/** EOA-only fallback. Do not use for smart-contract account sessions. */
 export const eoaMessageSignatureVerifier: MessageSignatureVerifier = {
   async verify({ address, message, signature }) {
     return verifyMessage({ address, message, signature })
@@ -50,6 +70,10 @@ export async function verifyOwnershipProof(
     return { ok: false, reason: 'challenge_not_found_or_consumed' }
   }
 
+  if (now.getTime() + MAX_CHALLENGE_CLOCK_SKEW_MS < challenge.issuedAt.getTime()) {
+    return { ok: false, reason: 'challenge_not_yet_valid' }
+  }
+
   if (now >= challenge.expiresAt) {
     return { ok: false, reason: 'challenge_expired' }
   }
@@ -81,6 +105,7 @@ export async function verifyOwnershipProof(
   try {
     signatureValid = await signatureVerifier.verify({
       address: challenge.address,
+      chainId: challenge.chainId,
       message: input.message,
       signature: input.signature,
     })
