@@ -201,7 +201,7 @@ export class OnchainAgeVerifier {
         currentDate: now,
       })
       if (credential.protectedHeader.kid !== this.#policy.issuerKeyId ||
-          credentialPayloadMissing(credential.payload) ||
+          credentialPayloadMissing(credential.payload, now.getTime()) ||
           !credentialValidity(credential.payload, now.getTime())) {
         return { status: 'unverifiable', reason: 'invalid_credential' }
       }
@@ -283,10 +283,11 @@ export class OnchainAgeVerifier {
   }
 }
 
-function credentialPayloadMissing(payload: JWTPayload): boolean {
+function credentialPayloadMissing(payload: JWTPayload, nowMs: number): boolean {
   return typeof payload.iss !== 'string' ||
     typeof payload.iat !== 'number' ||
     !Number.isSafeInteger(payload.iat) ||
+    payload.iat * 1000 > nowMs + MAX_PROOF_CLOCK_SKEW_SECONDS * 1000 ||
     typeof payload.exp !== 'number' ||
     !Number.isSafeInteger(payload.exp) ||
     payload.exp <= payload.iat
