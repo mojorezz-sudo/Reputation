@@ -1,10 +1,13 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  decodeJwt,
   exportJWK,
   generateKeyPair,
   SignJWT,
 } from 'jose'
+import type { Address, Hex } from 'viem'
 import {
+  OnchainAgeCredentialIssuer,
   ONCHAIN_AGE_CREDENTIAL_TYPE,
   ONCHAIN_AGE_CREDENTIAL_SCHEMA_VERSION,
   REPUTATION_VC_CONTEXT,
@@ -417,5 +420,95 @@ describe('sandbox verifier: issuer + holder + nonce + audience', () => {
     expect(await x.verifier.verify({ ...x.presentation, holderProofJwt: '' })).toMatchObject({
       status: 'unverifiable', reason: 'invalid_holder_proof',
     })
+  })
+
+  test('integrates real OnchainAgeCredentialIssuer output with verifier', async () => {
+    const x = await setup()
+    const issuer = new OnchainAgeCredentialIssuer({
+      issuer: ISSUER,
+      signer: x.signer,
+      evaluator: {
+        async evaluate() {
+          return {
+            methodologyVersion: 'onchain-age/0.1.0' as const,
+            status: 'satisfied' as const,
+            thresholdDate: new Date(THRESHOLD),
+            evidence: {
+              hash: ('0x' + 'a'.repeat(64)) as Hex,
+              blockNumber: 100n,
+              transactionIndex: 0,
+              timestamp: new Date('2023-11-01T00:00:00.000Z'),
+            },
+            coverage: {
+              providerId: 'fixture',
+              chainId: 1,
+              fromBlock: 0n,
+              throughBlock: 500n,
+              fetchedAt: new Date(NOW),
+              complete: true,
+            },
+          }
+        },
+      },
+      clock: () => new Date(NOW),
+    })
+    const issued = await issuer.issue({
+      ownership: {
+        ok: true,
+        address: '0x00000000000000000000000000000000000000A1' as Address,
+        chainId: 1,
+        verifiedAt: new Date(NOW.getTime() - 60_000),
+      },
+      thresholdDate: new Date(THRESHOLD),
+      holderPublicJwk: x.holderPublicJwk,
+    })
+    expect(issued.status).toBe('issued')
+    if (issued.status !== 'issued') return
+
+    const request = await x.verifier.createRequest()
+    const proof = await createHolderPresentation({
+      credentialJwt: issued.credential.value,
+      request,
+      holderPrivateKey: x.holderKeys.privateKey,
+      now: NOW,
+    })
+    expect((await x.verifier.verify(proof)).status).toBe('satisfied')
+  })
+
+  test('refuses a credential JWT issued implausibly far into the future', async () => {
+    const x = await setup()
+    const payload = decodeJwt(x.credential.value)
+    const future = Math.floor(NOW.getTime() / 1000) + 3_600
+    const crafted = await new SignJWT({ ...payload, iat: future })
+      .setProtectedHeader({ alg: 'ES256', typ: 'vc+jwt', kid: KID })
+      .setIssuer(ISSUER)
+      .setIssuedAt(future)
+      .setExpirationTime(future + 24 * 3_600)
+      .sign(x.issuerKeys.privateKey)
+
+    const holderProofJwt = await customHolderProof({
+      key: x.holderKeys.privateKey,
+      nonce: x.request.nonce,
+      audience: AUDIENCE,
+      credentialJwt: crafted,
+    })
+    expect(await x.verifier.verify({
+      nonce: x.request.nonce, holderProofJwt, credentialJwt: crafted,
+    })).toMatchObject({ status: 'unverifiable', reason: 'invalid_credential' })
+  })
+
+  test('invalid same-verifier proof burns nonce; next challenge is required', async () => {
+    const x = await setup()
+    const invalid = { ...x.presentation, holderProofJwt: 'invalid' }
+    expect((await x.verifier.verify(invalid)).status).toBe('unverifiable')
+    expect(await x.verifier.verify(x.presentation)).toMatchObject({
+      status: 'unverifiable', reason: 'challenge_not_found_or_consumed',
+    })
+    const retry = await x.verifier.createRequest()
+    const fresh = await createHolderPresentation({
+      credentialJwt: x.credential.value, request: retry,
+      holderPrivateKey: x.holderKeys.privateKey, now: NOW,
+    })
+    expect((await x.verifier.verify(fresh)).status).toBe('satisfied')
   })
 })
