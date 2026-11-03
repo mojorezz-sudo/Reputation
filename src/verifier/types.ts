@@ -1,4 +1,4 @@
-import type { CryptoKey, JWK } from 'jose'
+import type { JWK } from 'jose'
 
 /**
  * A verifier's policies and trust roots come from trusted server configuration,
