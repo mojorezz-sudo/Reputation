@@ -19,9 +19,10 @@ export type IssueOwnershipChallengeInput = Readonly<{
   uri: string
   /** Opaque server-side holder/session reference; never expose as reputation. */
   holderSessionId: string
+  /** Required server-side origin configuration; MUST NOT come from request input. */
+  trustedOrigin: string
   now?: Date
   ttlMs?: number
-  statement?: string
 }>
 
 export async function issueOwnershipChallenge(
@@ -53,6 +54,28 @@ export async function issueOwnershipChallenge(
     )
   }
 
+  let configuredOrigin: URL
+  let targetUri: URL
+  try {
+    configuredOrigin = new URL(input.trustedOrigin)
+    targetUri = new URL(input.uri)
+  } catch {
+    throw new Error('Invalid SIWE origin or URI')
+  }
+
+  // Only server-configured origins may issue ownership challenges. Never
+  // forward an untrusted request Origin/header as 'trustedOrigin'.
+  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)
+  if (
+    configuredOrigin.origin !== input.trustedOrigin ||
+    (configuredOrigin.protocol !== 'https:' && !(isLocal && configuredOrigin.protocol === 'http:')) ||
+    targetUri.origin !== configuredOrigin.origin ||
+    input.domain !== configuredOrigin.host ||
+    targetUri.username !== '' || targetUri.password !== '' || targetUri.hash !== ''
+  ) {
+    throw new Error('SIWE domain/URI must match configured trusted origin')
+  }
+
   const address = getAddress(input.address)
   const nonce = generateSiweNonce()
   const issuedAt = new Date(now)
@@ -67,7 +90,7 @@ export async function issueOwnershipChallenge(
     nonce,
     issuedAt,
     expirationTime: expiresAt,
-    statement: input.statement ?? DEFAULT_STATEMENT,
+    statement: DEFAULT_STATEMENT,
   })
 
   const challenge: OwnershipChallenge = {
