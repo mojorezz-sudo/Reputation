@@ -33,3 +33,10 @@ export {
   type OpenId4VpTransactionStore,
   type TrustedOnchainAgePolicy,
 } from './types.js'
+
+export {
+  createOpaqueRequestUri,
+  handleDirectPostJwtHttp,
+  serveOpenId4VpSignedRequest,
+  type HttpResponse,
+} from './http.js'
