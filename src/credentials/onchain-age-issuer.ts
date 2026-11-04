@@ -170,6 +170,7 @@ function buildCredentialModel(input: {
     '@context': [VC_V2_CONTEXT, REPUTATION_VC_CONTEXT],
     type: ['VerifiableCredential', ONCHAIN_AGE_CREDENTIAL_TYPE],
     issuer: input.issuer,
+    id: `urn:uuid:${crypto.randomUUID()}`,
     validFrom: input.now.toISOString(),
     validUntil: input.validUntil.toISOString(),
     credentialSubject: {

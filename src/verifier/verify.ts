@@ -205,6 +205,10 @@ export class OnchainAgeVerifier {
           !credentialValidity(credential.payload, now.getTime())) {
         return { status: 'unverifiable', reason: 'invalid_credential' }
       }
+      if (typeof credential.payload.id === 'string' &&
+          credential.payload.jti !== credential.payload.id) {
+        return { status: 'unverifiable', reason: 'invalid_credential' }
+      }
       const claim = parseCredential(credential.payload, this.#policy.issuer)
       if (!claim) return { status: 'unverifiable', reason: 'invalid_credential' }
       holderKey = await importJWK(claim.holderJwk, 'ES256')

@@ -70,7 +70,12 @@ export class VcJwtCredentialSigner
       cnf: { jwk: holderPublicJwk },
     }
 
-    const value = await new SignJWT(payload)
+    let jwt = new SignJWT(payload)
+    if (input.credential.id) {
+      jwt = jwt.setJti(input.credential.id)
+    }
+
+    const value = await jwt
       .setProtectedHeader({
         alg: 'ES256',
         typ: 'vc+jwt',
