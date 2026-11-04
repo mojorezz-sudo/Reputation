@@ -1,5 +1,5 @@
 import {
-  decodeProtectedHeader,
+  decodeJwt,
   importJWK,
   jwtVerify,
   SignJWT,
@@ -75,7 +75,9 @@ export async function reissueForJwtVcJsonPilot(input: {
       typeof original.iat !== 'number' ||
       typeof original.exp !== 'number' ||
       !validIso(original.validFrom) ||
-      original.issuer !== input.issuer) {
+      original.issuer !== input.issuer ||
+      typeof original.jti !== 'string' ||
+      original.jti !== original.id) {
     throw new Error('Invalid source VC 2.0 profile')
   }
 
@@ -141,13 +143,7 @@ export async function verifyJwtVcJsonPresentation(input: {
     // The token is decoded ONLY to locate its inner VC. We do not rely on
     // any unverified claim until the issuer and holder signatures are checked.
     // Outer VP JWT must be validated against cnf.jwk of the verified VC below.
-    const parts = input.vpJwt.split('.')
-    if (parts.length !== 3) return fail('invalid_vp')
-    const decoded = JSON.parse(new TextDecoder().decode(
-      Uint8Array.from(atob(parts[1]!.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)),
-    )) as unknown
-    if (!record(decoded)) return fail('invalid_vp')
-    untrusted = decoded as JWTPayload
+    untrusted = decodeJwt(input.vpJwt)
   } catch {
     return fail('invalid_vp')
   }
