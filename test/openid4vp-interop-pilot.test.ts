@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  base64url,
   CompactEncrypt,
   decodeJwt,
   exportJWK,
@@ -485,6 +486,169 @@ describe('OpenID4VP 1.0 protocol-shaped pilot: verifier attestation + direct_pos
     const body = await createEncryptedDirectPostResponse({ request: walletView, jwtVpJson: vp })
     expect((await x.processor.processForm(body)).status).toBe('pending_user_confirmation')
   })
+  test('a tampered signed Request Object is rejected by the wallet', async () => {
+    const x = await setup()
+    const parts = x.request.requestObjectJwt.split('.')
+    const original = JSON.parse(new TextDecoder().decode(base64url.decode(parts[1]!))) as Record<string, unknown>
+    original.response_uri = 'https://attacker.example/steal'
+    parts[1] = base64url.encode(JSON.stringify(original))
+    await expect(verifyAttestedRequestForWallet({
+      requestObjectJwt: parts.join('.'),
+      trustedAttestorIssuer: ATTESTOR,
+      trustedAttestorPublicKey: x.attestor.publicKey,
+      now: NOW,
+    })).rejects.toThrow()
+  })
+
+  test('wallet refuses a correctly signed request with excessive validity', async () => {
+    const x = await setup()
+    const iat = Math.floor(NOW.getTime() / 1000)
+    const future = await new SignJWT({ ...x.walletRequest })
+      .setProtectedHeader({
+        typ: 'oauth-authz-req+jwt',
+        alg: 'ES256',
+        jwt: x.attestationJwt,
+      })
+      .setAudience('https://self-issued.me/v2')
+      .setIssuedAt(iat)
+      .setExpirationTime(iat + 60 * 60)
+      .sign(x.verifier.privateKey)
+    await expect(verifyAttestedRequestForWallet({
+      requestObjectJwt: future,
+      trustedAttestorIssuer: ATTESTOR,
+      trustedAttestorPublicKey: x.attestor.publicKey,
+      now: NOW,
+    })).rejects.toThrow('validity window')
+  })
+
+  test('wallet refuses malicious DCQL even when signed by trusted verifier', async () => {
+    const x = await setup()
+    const iat = Math.floor(NOW.getTime() / 1000)
+    const unexpected = await new SignJWT({
+      ...x.walletRequest,
+      dcql_query: { credentials: [] },
+    })
+      .setProtectedHeader({
+        typ: 'oauth-authz-req+jwt',
+        alg: 'ES256',
+        jwt: x.attestationJwt,
+      })
+      .setAudience('https://self-issued.me/v2')
+      .setIssuedAt(iat)
+      .setExpirationTime(iat + 120)
+      .sign(x.verifier.privateKey)
+    await expect(verifyAttestedRequestForWallet({
+      requestObjectJwt: unexpected,
+      trustedAttestorIssuer: ATTESTOR,
+      trustedAttestorPublicKey: x.attestor.publicKey,
+      now: NOW,
+    })).rejects.toThrow('Invalid OpenID4VP Request Object')
+  })
+
+  test('wallet refuses verifier attestation that has expired', async () => {
+    const x = await setup()
+    const expired = await issueTestVerifierAttestation({
+      attestorIssuer: ATTESTOR,
+      attestorPrivateKey: x.attestor.privateKey,
+      clientId: CLIENT_ID,
+      verifierPublicKey: x.verifier.publicKey,
+      allowedResponseUris: [RESPONSE_URI],
+      now: new Date(NOW.getTime() - 2 * 60 * 60_000),
+      validityMs: 10 * 60_000,
+    })
+    const original = await createAttestedOpenId4VpRequest({
+      clientId: CLIENT_ID,
+      responseUri: RESPONSE_URI,
+      verifierAttestationJwt: expired,
+      verifierSigningPrivateKey: x.verifier.privateKey,
+      responseEncryptionPublicJwk: x.publicEncJwk,
+      initiatedBySession: SESSION_ID,
+      policy: {
+        issuer: ISSUER, issuerKeyId: ISSUER_KID,
+        issuerPublicKey: x.issuer.publicKey, chainId: 1,
+        methodologyVersion: 'onchain-age/0.1.0',
+        requiredThresholdDate: THRESHOLD.toISOString(),
+      },
+      store: new InMemoryOpenId4VpTransactionStore(),
+      now: NOW,
+    })
+    await expect(verifyAttestedRequestForWallet({
+      requestObjectJwt: original.requestObjectJwt,
+      trustedAttestorIssuer: ATTESTOR,
+      trustedAttestorPublicKey: x.attestor.publicKey,
+      now: NOW,
+    })).rejects.toThrow()
+  })
+
+  test('rejects a VC2 vc+jwt mislabeled as jwt_vc_json', async () => {
+    const x = await setup()
+    const vp = await createJwtVpJsonPresentation({
+      jwtVcJson: x.issued.credential.credential.value,
+      holderPrivateKey: x.holder.privateKey,
+      nonce: x.walletRequest.nonce,
+      audience: x.walletRequest.client_id,
+      now: NOW,
+    })
+    const body = await createEncryptedDirectPostResponse({
+      request: x.walletRequest, jwtVpJson: vp,
+    })
+    expect(await x.processor.processForm(body)).toMatchObject({
+      status: 'unverifiable',
+      reason: 'invalid_credential',
+    })
+  })
+
+  test('rejects an interoperable VC signed by the wrong issuer private key', async () => {
+    const x = await setup()
+    const attacker = await generateKeyPair('ES256', { extractable: true })
+    const forged = await reissueForJwtVcJsonPilot({
+      sourceVc2Jwt: x.issued.credential.credential.value,
+      issuer: ISSUER,
+      issuerKid: ISSUER_KID,
+      issuerPublicKey: x.issuer.publicKey,
+      issuerPrivateKey: attacker.privateKey,
+      now: NOW,
+    })
+    const vp = await createJwtVpJsonPresentation({
+      jwtVcJson: forged,
+      holderPrivateKey: x.holder.privateKey,
+      nonce: x.walletRequest.nonce,
+      audience: x.walletRequest.client_id,
+      now: NOW,
+    })
+    const body = await createEncryptedDirectPostResponse({
+      request: x.walletRequest,
+      jwtVpJson: vp,
+    })
+    expect(await x.processor.processForm(body)).toMatchObject({
+      status: 'unverifiable',
+      reason: 'invalid_credential',
+    })
+  })
+
+  test('pending response expires even when the JWT proof was initially valid', async () => {
+    const x = await setup()
+    const first = await x.processor.processForm(x.body)
+    expect(first.status).toBe('pending_user_confirmation')
+    if (first.status !== 'pending_user_confirmation') return
+    const late = new OpenId4VpDirectPostProcessor({
+      transactions: x.store,
+      results: x.results,
+      statusChecker: x.registry,
+      decryptionKey: x.encryption.privateKey,
+      encryptionKeyId: x.publicEncJwk.kid!,
+      trustedContinuationUri: CONTINUE_URI,
+      clock: () => new Date(NOW.getTime() + 130_000),
+    })
+    expect(await late.confirmFromInitiatingSession({
+      responseCode: codeFromRedirect(first.redirect_uri),
+      authenticatedBrowserSession: SESSION_ID,
+    })).toMatchObject({
+      status: 'unverifiable',
+      reason: 'confirmation_expired',
+    })
+  })
+
 })
 
 // Helper only for attacker fixtures. Response issuer code is independent.
