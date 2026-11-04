@@ -367,7 +367,7 @@ describe('OpenID4VP 1.0 protocol-shaped pilot: verifier attestation + direct_pos
       vp_token: { onchain_age: [x.vpJwt], extra: ['malicious'] },
     })))
       .setProtectedHeader({
-        alg: 'ECDH-ES', enc: 'A128GCM', kid: x.publicEncJwk.kid,
+        alg: 'ECDH-ES', enc: 'A128GCM', kid: x.publicEncJwk.kid!,
       })
     const jwe = await wrapped.encrypt(encKey)
     expect(await x.processor.processForm(new URLSearchParams({ response: jwe }).toString()))
