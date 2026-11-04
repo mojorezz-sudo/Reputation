@@ -43,7 +43,8 @@ function validIso(value: unknown): value is string {
  * This is not the same serialization as our native VC 2.0 application/vc+jwt,
  * and MUST NOT be a blind relabeling of that token. The issuer verifies a
  * genuine prior issuance using a pinned key before signing this encoding.
- * The two formats intentionally share the same underlying claim and jti.
+ * The two formats preserve the claim but receive distinct JWT IDs, so
+ * issuer status storage can revoke each signed encoding independently.
  */
 export async function reissueForJwtVcJsonPilot(input: {
   sourceVc2Jwt: string
@@ -95,7 +96,7 @@ export async function reissueForJwtVcJsonPilot(input: {
     .setIssuer(input.issuer)
     .setIssuedAt(original.iat)
     .setExpirationTime(original.exp)
-  if (typeof original.jti === 'string') signed = signed.setJti(original.jti)
+  signed = signed.setJti('urn:uuid:' + crypto.randomUUID())
   return signed.sign(input.issuerPrivateKey)
 }
 
