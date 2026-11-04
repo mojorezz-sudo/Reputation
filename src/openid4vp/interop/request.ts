@@ -129,7 +129,9 @@ export async function createAttestedOpenId4VpRequest(input: {
       !input.initiatedBySession.trim() ||
       !publicP256Jwk(input.responseEncryptionPublicJwk) ||
       typeof input.responseEncryptionPublicJwk.kid !== 'string' ||
-      !input.responseEncryptionPublicJwk.kid) {
+      !input.responseEncryptionPublicJwk.kid ||
+      (input.responseEncryptionPublicJwk.use !== undefined && input.responseEncryptionPublicJwk.use !== 'enc') ||
+      (input.responseEncryptionPublicJwk.alg !== undefined && input.responseEncryptionPublicJwk.alg !== 'ECDH-ES')) {
     throw new Error('Invalid verifier configuration')
   }
   if (input.policy.chainId !== 1 || !input.policy.issuer.trim() ||
@@ -222,6 +224,20 @@ export async function verifyAttestedRequestForWallet(input: {
     currentDate: now,
   })
   const p = verified.payload
+  const nowMs = now.getTime()
+  // Local strict lifetime policy. JOSE validates exp if present; requiring
+  // BOTH exp and iat also prevents permanently valid signed requests.
+  if (!Number.isFinite(nowMs) ||
+      !Number.isSafeInteger(p.iat) ||
+      !Number.isSafeInteger(p.exp) ||
+      typeof p.iat !== 'number' ||
+      typeof p.exp !== 'number' ||
+      p.exp <= p.iat ||
+      p.exp - p.iat > REQUEST_TTL_MS / 1000 ||
+      p.iat * 1000 > nowMs + 30_000 ||
+      p.exp * 1000 <= nowMs) {
+    throw new Error('Invalid Request Object validity window')
+  }
   const allowed = attestation.payload.redirect_uris
   if (
     p.client_id !== attestation.payload.sub ||
@@ -246,6 +262,8 @@ export async function verifyAttestedRequestForWallet(input: {
       !publicP256Jwk(keys[0]) ||
       typeof keys[0].kid !== 'string' ||
       !keys[0].kid ||
+      (keys[0].use !== undefined && keys[0].use !== 'enc') ||
+      (keys[0].alg !== undefined && keys[0].alg !== 'ECDH-ES') ||
       !isRecord(p.client_metadata.vp_formats_supported.jwt_vc_json) ||
       JSON.stringify(p.client_metadata.vp_formats_supported.jwt_vc_json.alg_values) !== '["ES256"]' ||
       JSON.stringify(p.client_metadata.encrypted_response_enc_values_supported) !== '["A128GCM"]') {
