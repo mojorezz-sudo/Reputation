@@ -1,4 +1,4 @@
-import type { CryptoKey, JWK } from 'jose'
+import type { JWK } from 'jose'
 
 export const OID4VP_STATIC_WALLET_AUDIENCE = 'https://self-issued.me/v2'
 export const OID4VP_VC_QUERY_ID = 'onchain_age'
