@@ -40,6 +40,8 @@ export type OnchainAgeCredential = Readonly<{
   ]
   type: readonly ['VerifiableCredential', typeof ONCHAIN_AGE_CREDENTIAL_TYPE]
   issuer: string
+  /** Unique signed credential identifier for issuer-side revocation. */
+  id?: string
   validFrom: string
   validUntil: string
   credentialSubject: OnchainAgeCredentialSubject
