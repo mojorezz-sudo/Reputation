@@ -72,3 +72,15 @@ No arbitrary DCQL semantics, multiple credentials, mdoc, SD-JWT VC, BBS, ZK, mul
 - https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-final.html
 - https://www.w3.org/TR/vc-data-model-2.0/
 - https://www.w3.org/TR/vc-bitstring-status-list/
+
+## 7. Current market conformance profile check (2026-11-04)
+
+OpenID Foundation completed its free OpenID4VP 1.0 + HAIP 1.0 conformance suite on 2026-08-07. The published wallet certification profiles are for **SD-JWT VC** and **ISO mDL** with `direct_post.jwt` or `dc_api.jwt`; they do NOT establish that certified wallets accept this prototype's **legacy `jwt_vc_json`** request. See https://openid.net/openid4vp-and-openid4vci-conformance-tests-are-complete-and-open-for-self-certification/ and https://openid.net/certification/certified-oid4vp-haip-final/.
+
+Next conformance gate:
+- Run an OpenID Foundation verifier conformance suite for the selected HAIP/OpenID4VP profile, and capture all verdicts as reproducible CI artifacts.
+- Prioritize a separate, standards-conformant **SD-JWT VC** credential-issuance and VP adapter instead of assuming automatic compatibility with legacy JWT VC; keep the existing canonical VC 2.0 credentials distinct.
+- Test two **independently maintained** wallets verified to support our selected format and verifier trust scheme; the certification list offers starting points such as eudi-dev and OID4VCgo, but support for `verifier_attestation` and our specific format MUST be confirmed separately.
+- Only claim wallet interoperability when both real-world tests pass and the verifier trust anchor is accepted by those wallets.
+
+The code in this PR remains a cryptographically tested **interoperability candidate**, not yet independently interoperable.
