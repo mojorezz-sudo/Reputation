@@ -1,3 +1,4 @@
+import { SD_JWT_VC_TYPE } from '../../credentials/sd-jwt-vc.js'
 import {
   ONCHAIN_AGE_CREDENTIAL_TYPE,
 } from '../../credentials/types.js'
@@ -5,6 +6,7 @@ import {
   OID4VP_VC_FORMAT,
   OID4VP_VC_QUERY_ID,
   type OnchainAgeDcql,
+  type SdJwtOnchainAgeDcql,
 } from './types.js'
 
 /**
@@ -27,6 +29,19 @@ export function createOnchainAgeDcql(): OnchainAgeDcql {
   }
 }
 
+export function createOnchainAgeSdJwtDcql(): SdJwtOnchainAgeDcql {
+  return {
+    credentials: [{
+      id: OID4VP_VC_QUERY_ID,
+      format: 'dc+sd-jwt',
+      require_cryptographic_holder_binding: true,
+      meta: { vct_values: [SD_JWT_VC_TYPE] },
+      claims: [{ path: ['thresholdDate'] }],
+    }],
+  }
+}
+
 export function matchesSupportedOnchainAgeDcql(query: unknown): boolean {
-  return JSON.stringify(query) === JSON.stringify(createOnchainAgeDcql())
+  return JSON.stringify(query) === JSON.stringify(createOnchainAgeDcql()) ||
+    JSON.stringify(query) === JSON.stringify(createOnchainAgeSdJwtDcql())
 }

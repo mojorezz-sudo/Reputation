@@ -6,7 +6,7 @@ export {
   buildOpenId4VpInvocationUri,
   type IssuedOpenId4VpRequest,
 } from './request.js'
-export { createOnchainAgeDcql, matchesSupportedOnchainAgeDcql } from './query.js'
+export { createOnchainAgeDcql, createOnchainAgeSdJwtDcql, matchesSupportedOnchainAgeDcql } from './query.js'
 export {
   createJwtVpJsonPresentation,
   reissueForJwtVcJsonPilot,
@@ -27,6 +27,7 @@ export {
   OID4VP_VC_FORMAT,
   OID4VP_VC_QUERY_ID,
   type OnchainAgeDcql,
+  type SdJwtOnchainAgeDcql,
   type OnchainAgeVpResult,
   type OpenId4VpRequestObject,
   type OpenId4VpTransaction,
