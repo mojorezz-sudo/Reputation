@@ -1,3 +1,4 @@
+import { base64url } from 'jose'
 import type { IssuanceSessionStore, PrivateIssuanceSession } from '../issuance/secure-session.js'
 import type { OpenId4VpTransaction, OpenId4VpTransactionStore } from '../openid4vp/interop/types.js'
 import type { PendingVerifiedPresentation, VerifiedPresentationStore } from '../openid4vp/interop/response.js'
@@ -12,6 +13,10 @@ export interface RedisAtomicClient {
 export type RedisStoreOptions = Readonly<{
   redis: RedisAtomicClient
   namespace: string
+  /** Non-extractable AES-256-GCM key provisioned by KMS / secure server config. */
+  encryptionKey: CryptoKey
+  /** Independent non-extractable HMAC-SHA256 session-binding key. */
+  sessionBindingKey: CryptoKey
   clock?: () => number
 }>
 const CONSUME_FOR_SESSION = [
@@ -19,11 +24,14 @@ const CONSUME_FOR_SESSION = [
   "if not value then return false end",
   "local ok, item = pcall(cjson.decode, value)",
   "if not ok or type(item) ~= 'table' then return false end",
-  "if item.holderSessionId ~= ARGV[1] and item.initiatedBySession ~= ARGV[1] then return false end",
+  "if item.sessionBinding ~= ARGV[1] then return false end",
   "redis.call('DEL', KEYS[1])",
   "return value",
 ].join('\n')
 const MAX_TTL = 10 * 60_000
+const MAX_PLAINTEXT = 8192
+const MAX_ENVELOPE = 20_000
+const encoder = new TextEncoder()
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -33,11 +41,22 @@ export class RedisAtomicEnvelope {
   readonly #client: RedisAtomicClient
   readonly #prefix: string
   readonly #clock: () => number
+  readonly #encryptionKey: CryptoKey
+  readonly #bindingKey: CryptoKey
 
   constructor(options: RedisStoreOptions) {
     if (!/^[a-zA-Z0-9:_-]{3,80}$/.test(options.namespace)) {
       throw new Error('Invalid Redis namespace')
     }
+    if (options.encryptionKey.algorithm.name !== 'AES-GCM' ||
+        !options.encryptionKey.usages.includes('encrypt') ||
+        !options.encryptionKey.usages.includes('decrypt') ||
+        options.sessionBindingKey.algorithm.name !== 'HMAC' ||
+        !options.sessionBindingKey.usages.includes('sign')) {
+      throw new Error('Redis storage requires valid AEAD and session MAC keys')
+    }
+    this.#encryptionKey = options.encryptionKey
+    this.#bindingKey = options.sessionBindingKey
     this.#client = options.redis
     this.#prefix = options.namespace
     this.#clock = options.clock ?? (() => Date.now())
@@ -52,15 +71,41 @@ export class RedisAtomicEnvelope {
     return this.#prefix + ':' + kind + ':' + hex
   }
 
+  async #sessionTag(redisKey: string, session: string): Promise<string> {
+    const tag = await crypto.subtle.sign(
+      'HMAC', this.#bindingKey, encoder.encode(redisKey + '\0' + session),
+    )
+    return base64url.encode(new Uint8Array(tag))
+  }
+
   async save(kind: string, token: string, expiresAt: number, record: object): Promise<void> {
     const ttl = Math.floor(expiresAt - this.#clock())
     if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > MAX_TTL) {
       throw new Error('Invalid nonce lifetime')
     }
-    const serialized = JSON.stringify(record)
-    if (serialized.length > 8192) throw new Error('Oversized nonce envelope')
+    const plaintext = JSON.stringify(record)
+    if (plaintext.length > MAX_PLAINTEXT) throw new Error('Oversized nonce envelope')
+    const key = await this.#key(kind, token)
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const ciphertext = await crypto.subtle.encrypt({
+      name: 'AES-GCM',
+      iv,
+      additionalData: encoder.encode(key),
+      tagLength: 128,
+    }, this.#encryptionKey, encoder.encode(plaintext))
+    const rec = record as Record<string, unknown>
+    const session = typeof rec.holderSessionId === 'string' ? rec.holderSessionId :
+      typeof rec.initiatedBySession === 'string' ? rec.initiatedBySession : undefined
+    const sessionBinding = session === undefined ? undefined : await this.#sessionTag(key, session)
+    const envelope = JSON.stringify({
+      v: 1,
+      iv: base64url.encode(iv),
+      ciphertext: base64url.encode(new Uint8Array(ciphertext)),
+      sessionBinding,
+    })
+    if (envelope.length > MAX_ENVELOPE) throw new Error('Oversized encrypted nonce envelope')
     const answer = await this.#client.sendCommand([
-      'SET', await this.#key(kind, token), serialized, 'PX', String(ttl), 'NX',
+      'SET', key, envelope, 'PX', String(ttl), 'NX',
     ])
     if (answer !== 'OK') throw new Error('Atomic store collision or unavailable Redis')
   }
@@ -68,17 +113,42 @@ export class RedisAtomicEnvelope {
   async take(kind: string, token: string, session?: string): Promise<unknown> {
     const key = await this.#key(kind, token)
     if (session !== undefined && !session.trim()) throw new Error('Session required')
-    const answer = session === undefined
+    const binding = session === undefined ? undefined : await this.#sessionTag(key, session)
+    const answer = binding === undefined
       ? await this.#client.sendCommand(['GETDEL', key])
       : await this.#client.sendCommand([
-          'EVAL', CONSUME_FOR_SESSION, '1', key, session,
+          'EVAL', CONSUME_FOR_SESSION, '1', key, binding,
         ])
     if (answer === null || answer === false) return undefined
-    if (typeof answer !== 'string' || answer.length > 8192) {
+    if (typeof answer !== 'string' || answer.length > MAX_ENVELOPE) {
       throw new Error('Corrupt Redis response')
     }
-    const decoded: unknown = JSON.parse(answer)
-    if (!object(decoded)) throw new Error('Corrupt Redis envelope')
+    const envelope: unknown = JSON.parse(answer)
+    if (!object(envelope) || envelope.v !== 1 ||
+        typeof envelope.iv !== 'string' ||
+        typeof envelope.ciphertext !== 'string' ||
+        (binding !== undefined && envelope.sessionBinding !== binding)) {
+      throw new Error('Invalid protected Redis envelope')
+    }
+    let decoded: unknown
+    try {
+      const iv = base64url.decode(envelope.iv)
+      if (iv.length !== 12) throw new Error('Invalid nonce')
+      const plaintext = await crypto.subtle.decrypt({
+        name: 'AES-GCM',
+        iv,
+        additionalData: encoder.encode(key),
+        tagLength: 128,
+      }, this.#encryptionKey, base64url.decode(envelope.ciphertext))
+      decoded = JSON.parse(new TextDecoder().decode(plaintext)) as unknown
+    } catch {
+      throw new Error('Encrypted Redis envelope authentication failed')
+    }
+    if (!object(decoded) || (session !== undefined &&
+        decoded.holderSessionId !== session &&
+        decoded.initiatedBySession !== session)) {
+      throw new Error('Corrupt or wrong-session encrypted Redis record')
+    }
     return decoded
   }
 }
