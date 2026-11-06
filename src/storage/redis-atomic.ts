@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { IssuanceSessionStore, PrivateIssuanceSession } from '../issuance/secure-session.js'
 import type { OpenId4VpTransaction, OpenId4VpTransactionStore } from '../openid4vp/interop/types.js'
 import type { PendingVerifiedPresentation, VerifiedPresentationStore } from '../openid4vp/interop/response.js'
@@ -44,12 +43,13 @@ export class RedisAtomicEnvelope {
     this.#clock = options.clock ?? (() => Date.now())
   }
 
-  #key(kind: string, token: string): string {
+  async #key(kind: string, token: string): Promise<string> {
     if (!/^[a-zA-Z0-9_-]{32,128}$/.test(token)) {
       throw new Error('Invalid opaque nonce/state')
     }
-    return this.#prefix + ':' + kind + ':' +
-      createHash('sha256').update(token).digest('hex')
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+    const hex = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
+    return this.#prefix + ':' + kind + ':' + hex
   }
 
   async save(kind: string, token: string, expiresAt: number, record: object): Promise<void> {
@@ -60,13 +60,13 @@ export class RedisAtomicEnvelope {
     const serialized = JSON.stringify(record)
     if (serialized.length > 8192) throw new Error('Oversized nonce envelope')
     const answer = await this.#client.sendCommand([
-      'SET', this.#key(kind, token), serialized, 'PX', String(ttl), 'NX',
+      'SET', await this.#key(kind, token), serialized, 'PX', String(ttl), 'NX',
     ])
     if (answer !== 'OK') throw new Error('Atomic store collision or unavailable Redis')
   }
 
   async take(kind: string, token: string, session?: string): Promise<unknown> {
-    const key = this.#key(kind, token)
+    const key = await this.#key(kind, token)
     if (session !== undefined && !session.trim()) throw new Error('Session required')
     const answer = session === undefined
       ? await this.#client.sendCommand(['GETDEL', key])
