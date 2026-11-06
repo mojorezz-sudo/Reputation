@@ -7,7 +7,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose'
-import { createOnchainAgeDcql, matchesSupportedOnchainAgeDcql } from './query.js'
+import { createOnchainAgeDcql, createOnchainAgeSdJwtDcql, matchesSupportedOnchainAgeDcql } from './query.js'
 import {
   OID4VP_ATTESTATION_TYPE,
   OID4VP_REQUEST_TYPE,
@@ -120,6 +120,7 @@ export async function createAttestedOpenId4VpRequest(input: {
   responseEncryptionPublicJwk: JWK
   initiatedBySession: string
   policy: TrustedOnchainAgePolicy
+  credentialFormat?: 'jwt_vc_json' | 'dc+sd-jwt'
   store: OpenId4VpTransactionStore
   now?: Date
 }): Promise<IssuedOpenId4VpRequest> {
@@ -145,6 +146,10 @@ export async function createAttestedOpenId4VpRequest(input: {
   if (!Number.isFinite(nowMs)) throw new Error('Invalid request clock')
   const nonce = randomToken()
   const state = randomToken()
+  const credentialFormat = input.credentialFormat ?? 'jwt_vc_json'
+  const vpFormats = credentialFormat === 'dc+sd-jwt'
+    ? { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] } } as const
+    : { jwt_vc_json: { alg_values: ['ES256'] } } as const
   const request: OpenId4VpRequestObject = {
     client_id: input.clientId,
     response_type: 'vp_token',
@@ -152,9 +157,10 @@ export async function createAttestedOpenId4VpRequest(input: {
     response_uri: input.responseUri,
     nonce,
     state,
-    dcql_query: createOnchainAgeDcql(),
+    dcql_query: credentialFormat === 'dc+sd-jwt'
+      ? createOnchainAgeSdJwtDcql() : createOnchainAgeDcql(),
     client_metadata: {
-      vp_formats_supported: { jwt_vc_json: { alg_values: ['ES256'] } },
+      vp_formats_supported: vpFormats,
       encrypted_response_enc_values_supported: ['A128GCM'],
       jwks: { keys: [input.responseEncryptionPublicJwk] },
     },
@@ -170,6 +176,7 @@ export async function createAttestedOpenId4VpRequest(input: {
     issuedAt: nowMs,
     expiresAt,
     policy: input.policy,
+    format: credentialFormat,
   })
 
   const requestObjectJwt = await new SignJWT(request)
@@ -264,11 +271,18 @@ export async function verifyAttestedRequestForWallet(input: {
       !keys[0].kid ||
       (keys[0].use !== undefined && keys[0].use !== 'enc') ||
       (keys[0].alg !== undefined && keys[0].alg !== 'ECDH-ES') ||
-      !isRecord(p.client_metadata.vp_formats_supported.jwt_vc_json) ||
-      JSON.stringify(p.client_metadata.vp_formats_supported.jwt_vc_json.alg_values) !== '["ES256"]' ||
       JSON.stringify(p.client_metadata.encrypted_response_enc_values_supported) !== '["A128GCM"]') {
     throw new Error('Invalid OpenID4VP wallet-facing metadata')
   }
+  const queryFormat = (p.dcql_query as { credentials?: {format?: string}[] }).credentials?.[0]?.format
+  const formats = p.client_metadata.vp_formats_supported
+  const legacyOk = queryFormat === 'jwt_vc_json' &&
+    JSON.stringify(formats) === JSON.stringify({ jwt_vc_json: { alg_values: ['ES256'] } })
+  const sdJwtOk = queryFormat === 'dc+sd-jwt' &&
+    JSON.stringify(formats) === JSON.stringify({
+      'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] },
+    })
+  if (!legacyOk && !sdJwtOk) throw new Error('Credential query / advertised format mismatch')
   return p as unknown as OpenId4VpRequestObject
 }
 
