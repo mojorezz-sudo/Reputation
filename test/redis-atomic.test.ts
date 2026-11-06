@@ -273,6 +273,30 @@ describe('Redis distributed atomic adapter command contracts', () => {
     })
   })
 
+  test('rejects AES-128, exportable encryption keys and HMAC-SHA1 key policy', async () => {
+    const redis = new FakeRedis()
+    const weakAes = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 128 }, false, ['encrypt', 'decrypt'],
+    )
+    expect(() => new RedisAtomicEnvelope({
+      ...config(redis), encryptionKey: weakAes,
+    })).toThrow('nonextractable AES-256-GCM')
+
+    const extractable = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'],
+    )
+    expect(() => new RedisAtomicEnvelope({
+      ...config(redis), encryptionKey: extractable,
+    })).toThrow('nonextractable AES-256-GCM')
+
+    const sha1 = await crypto.subtle.generateKey(
+      { name: 'HMAC', hash: 'SHA-1', length: 256 }, false, ['sign'],
+    )
+    expect(() => new RedisAtomicEnvelope({
+      ...config(redis), sessionBindingKey: sha1,
+    })).toThrow('HMAC-SHA256')
+  })
+
   test('Redis namespace and opaque identifiers are validated before network access', async () => {
     const redis = new FakeRedis()
     expect(() => new RedisAtomicEnvelope({ ...config(redis), namespace: 'invalid prefix' }))
