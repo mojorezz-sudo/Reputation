@@ -160,6 +160,15 @@ export async function issueOnchainAgeSdJwtVc(input: {
     .setExpirationTime(until)
     .sign(input.issuerPrivateKey)
 
+  // Catch issuer signing-key misconfiguration before publishing or recording
+  // any credential. The trust root is pinned to our own issuer public key.
+  await jwtVerify(issuerJwt, input.issuerPublicKey, {
+    issuer: input.issuer,
+    typ: 'dc+sd-jwt',
+    algorithms: ['ES256'],
+    currentDate: input.now,
+  })
+
   // Registry ID is not included in the signed token or presentations.
   const credentialId = 'urn:uuid:' + crypto.randomUUID()
   await input.newStatusRegistry.recordDerived({
@@ -215,6 +224,12 @@ export async function presentOnchainAgeSdJwtVc(input: {
   return sdJwt + keyBinding
 }
 
+/**
+ * Stateless cryptographic verifier. This function alone DOES NOT consume a
+ * verifier nonce and does not offer replay prevention! Applications MUST use
+ * an atomic transaction store (as OpenId4VpDirectPostProcessor does) before
+ * treating a verified result as a fresh authentication or access proof.
+ */
 export async function verifyOnchainAgeSdJwtVc(
   presentation: string,
   policy: SdJwtOnchainAgePolicy,
