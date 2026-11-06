@@ -33,6 +33,9 @@ New adapters use Redis >=6.2 protocol commands:
 - GETDEL to atomically consume OpenID4VP state once.
 - A Lua EVAL script compares an authenticated session ID and atomically deletes only for the matching holder/browser session. Wrong-session probes do not burn the legitimate request.
 - Redis key names contain SHA-256 digests of 256-bit bearer tokens, never bearer tokens themselves.
+- Redis values are now encrypted using AES-256-GCM with a fresh 96-bit IV and authenticated additional data bound to the namespace/kind/nonce-key. Raw wallet addresses, issuer session information and proof data are not present as plaintext Redis values.
+- A distinct HMAC-SHA256 key computes per-nonce/per-session binding tags; Lua compares these tags rather than plaintext session identifiers. The post-consumption decryption checks the authenticated session again and rejects tampering.
+- The adapter requires both trusted CryptoKey objects (AEAD and HMAC); there is no plaintext fallback. Keys are never persisted to Redis.
 - Issuer public CryptoKey objects are NOT JSON serialized. Only trusted issuer/kid selectors are stored; the actual key is restored exclusively from an independently configured server-side key allowlist.
 - Credential format must be explicit in the persisted transaction to prevent legacy/SD-JWT confusion.
 - Expired or unreadable Redis records fail closed; unavailable Redis does NOT silently switch to a process-local fallback.
@@ -41,7 +44,7 @@ New adapters use Redis >=6.2 protocol commands:
 
 Unit tests use a deterministic atomic Redis COMMAND MODEL to exercise NX/PX/GETDEL/EVAL, concurrency across adapter instances, replay, collision, TTL, wrong-session isolation, unavailable key, corrupted metadata and network outage. They are NOT live Redis tests and do not prove durability, replica consistency or Lua portability under real load. A real Redis instance, multiple Node processes, network failures, failover, ACL and TLS are required before deployment.
 
-Server-side issuance records still contain wallet addresses and ownership timestamps in Redis JSON values. This is sensitive! At-rest encryption, hardened Redis access controls, regional hosting, minimal retention, privacy impact review, no-eviction policy and credential/key rotation must be implemented before production. No address or token may be put in application logs or analytics.
+Server-side issuance records contain wallet addresses and ownership timestamps in the authenticated ENCRYPTED payload, not in plaintext Redis JSON. AES-256-GCM and per-nonce HMAC binding mitigate Redis dump and tampering exposure, but they are only useful if application secrets come from a real KMS and remain outside backups/logs. Independent key provisioning, rotation while preserving active sessions, hardened TLS/ACL, data residency, minimal retention, no-eviction policy, cache-failover durability and privacy impact review are still required before production. No raw address, session, nonce or key may be put in application logs or analytics.
 
 ## C. Derived-credential revocation safety
 
@@ -54,7 +57,7 @@ This in-memory implementation is NOT a production revocation service: it retains
 1. **Wallet interoperability:** no independent wallet or OpenID Foundation conformance-suite run has passed. The local harness is not proof of broad compatibility; test at least two independently maintained wallets supporting the chosen vct/profile, attestation and DCQL.
 2. **Public endpoints:** no HTTPS deployment, browser origin proof, authenticated session, reverse-proxy security, CSRF, rate limit, anti-phishing UX or TLS verification is included in this PR.
 3. **Redis:** real Redis 7+ integration and failure-injection tests needed; add TLS, ACL, protected master, multi-replica atomicity, durability, TTL metrics and failover scenario tests.
-4. **Storage privacy:** encrypt wallet/issuance session values at rest, implement key rotation and prove that leaked Redis backups cannot map wallets to identifiers.
+4. **Storage privacy:** AES-GCM/HMAC application-level protection is implemented in the adapter and tested in a command model. Still require production KMS-held nonextractable keys, secure key rotation, independent leak/tamper tests, backup security and rigorous data-retention controls.
 5. **Issuer key trust:** known trust anchors, signing key lifecycle, revocation of issuer keys, status-list signatures and clock tolerances need a formal key-management architecture.
 6. **Derivation lineage:** move source/derived revocation tracking into a privacy-preserving signed status-list design with tested invalidation propagation and independent verifier caching.
 7. **Unlinkability:** only claim true unlinkability after colluding verifier tests and ZK/anonymous credentials research. SD-JWT alone does not satisfy this property.
