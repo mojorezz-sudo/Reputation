@@ -145,7 +145,7 @@ async function fixture() {
   })
   return {
     holder, credential, credentialRegistry, sourceRegistry, transactions, requests, walletView,
-    proof, response, processor, results, issuer, enc, verifierAttestationJwt, verifier,
+    proof, response, processor, results, issuer, enc, verifierAttestationJwt, verifier, attestor,
   }
 }
 
@@ -205,9 +205,9 @@ describe('SD-JWT VC connected to actual signed OpenID4VP transaction', () => {
     await expect(verifyAttestedRequestForWallet({
       requestObjectJwt: contradictory,
       trustedAttestorIssuer: ATTESTOR,
-      trustedAttestorPublicKey: (await generateKeyPair('ES256')).publicKey,
+      trustedAttestorPublicKey: x.attestor.publicKey,
       now: NOW,
-    })).rejects.toThrow()
+    })).rejects.toThrow('format mismatch')
   })
 
   test('server refuses non SD-JWT data delivered inside correctly encrypted dc+sd-jwt response', async () => {
