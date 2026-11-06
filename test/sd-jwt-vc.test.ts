@@ -250,6 +250,21 @@ describe('RFC9901 SD-JWT VC draft-25 proof of concept', () => {
     }
   })
 
+  test('issuer refuses to register a credential signed by a mismatched private key', async () => {
+    const x = await setup()
+    const otherSigningKey = await generateKeyPair('ES256', { extractable: true })
+    await expect(issueOnchainAgeSdJwtVc({
+      sourceVc2Jwt: x.native.value,
+      issuer: ISSUER,
+      issuerKid: KID,
+      issuerPublicKey: x.issuerKeys.publicKey,
+      issuerPrivateKey: otherSigningKey.privateKey,
+      sourceStatusChecker: x.sourceRegistry,
+      newStatusRegistry: x.newRegistry,
+      now: NOW,
+    })).rejects.toThrow()
+  })
+
   test('source revocation stops reissuance, unknown status fails closed', async () => {
     const x = await setup()
     await x.sourceRegistry.revoke(ORIGINAL_ID)
