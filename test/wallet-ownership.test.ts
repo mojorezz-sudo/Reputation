@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 
 import {
   InMemoryOwnershipChallengeStore,
+  createChainAwareMessageSignatureVerifier,
   issueOwnershipChallenge,
   verifyOwnershipProof,
 } from '../src/wallet-ownership/index.js'
@@ -27,6 +28,7 @@ async function issue(store: InMemoryOwnershipChallengeStore) {
       address: holder.address,
       chainId: 1,
       domain: 'reputation.test',
+      trustedOrigin: 'https://reputation.test',
       uri: 'https://reputation.test/wallet-link',
       holderSessionId: HOLDER_SESSION_ID,
       now: issuedAt,
@@ -125,6 +127,7 @@ describe('wallet ownership', () => {
         address: holder.address,
         chainId: 1,
         domain: 'reputation.test',
+        trustedOrigin: 'https://reputation.test',
         uri: 'https://reputation.test/wallet-link',
         holderSessionId: HOLDER_SESSION_ID,
         now: issuedAt,
@@ -202,6 +205,7 @@ describe('wallet ownership', () => {
           address: holder.address,
           chainId: 1,
           domain: 'reputation.test',
+          trustedOrigin: 'https://reputation.test',
           uri: 'https://reputation.test/wallet-link',
           holderSessionId: HOLDER_SESSION_ID,
           now: issuedAt,
@@ -210,5 +214,82 @@ describe('wallet ownership', () => {
         store,
       ),
     ).rejects.toThrow('ttlMs must be an integer')
+  })
+
+  test('rejects domain and URI not matching trusted origin', async () => {
+    const store = createStore()
+    const base = {
+      address: holder.address,
+      chainId: 1,
+      holderSessionId: HOLDER_SESSION_ID,
+      trustedOrigin: 'https://reputation.test',
+      now: issuedAt,
+    } as const
+    await expect(issueOwnershipChallenge({
+      ...base, domain: 'evil.test', uri: 'https://reputation.test/wallet-link',
+    }, store)).rejects.toThrow('trusted origin')
+    await expect(issueOwnershipChallenge({
+      ...base, domain: 'reputation.test', uri: 'https://evil.test/wallet-link',
+    }, store)).rejects.toThrow('trusted origin')
+    await expect(issueOwnershipChallenge({
+      ...base, domain: 'reputation.test', uri: 'http://reputation.test/wallet-link',
+    }, store)).rejects.toThrow('trusted origin')
+  })
+
+  test('rejects challenge from future beyond allowed clock skew', async () => {
+    const store = createStore()
+    const challenge = await issue(store)
+    const signature = await holder.signMessage({ message: challenge.message })
+    const result = await verifyOwnershipProof({
+      ...verificationInput(challenge, signature),
+      now: new Date(issuedAt.getTime() - 30_001),
+    }, store)
+    expect(result).toEqual({ ok: false, reason: 'challenge_not_yet_valid' })
+  })
+
+  test('at most one concurrent replay attempt can succeed', async () => {
+    const store = createStore()
+    const challenge = await issue(store)
+    const signature = await holder.signMessage({ message: challenge.message })
+    const request = verificationInput(challenge, signature)
+    const results = await Promise.all([
+      verifyOwnershipProof(request, store),
+      verifyOwnershipProof(request, store),
+    ])
+    expect(results.filter(result => result.ok)).toHaveLength(1)
+  })
+
+  test('a verifier bound to another chain cannot be used for this wallet', async () => {
+    const store = createStore()
+    const challenge = await issue(store)
+    const signature = await holder.signMessage({ message: challenge.message })
+    let calls = 0
+    const fakeClient = {
+      async verifyMessage() { calls++; return true },
+    }
+    const verifier = createChainAwareMessageSignatureVerifier(8453, fakeClient)
+    const result = await verifyOwnershipProof(
+      verificationInput(challenge, signature), store, verifier,
+    )
+    expect(result).toEqual({ ok: false, reason: 'invalid_signature' })
+    expect(calls).toBe(0)
+  })
+
+  test('a matching-chain injected verifier receives the exact challenge', async () => {
+    const store = createStore()
+    const challenge = await issue(store)
+    const signature = await holder.signMessage({ message: challenge.message })
+    let receivedMessage = ''
+    const verifier = createChainAwareMessageSignatureVerifier(1, {
+      async verifyMessage({ message }) {
+        receivedMessage = message
+        return true
+      },
+    })
+    const result = await verifyOwnershipProof(
+      verificationInput(challenge, signature), store, verifier,
+    )
+    expect(result.ok).toBe(true)
+    expect(receivedMessage).toBe(challenge.message)
   })
 })

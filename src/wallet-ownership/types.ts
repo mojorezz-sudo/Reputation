@@ -33,6 +33,7 @@ export interface OwnershipChallengeStore {
 export interface MessageSignatureVerifier {
   verify(input: {
     address: Address
+    chainId: number
     message: string
     signature: Hex
   }): Promise<boolean>
@@ -42,6 +43,7 @@ export type OwnershipVerificationFailureReason =
   | 'malformed_message'
   | 'challenge_not_found_or_consumed'
   | 'challenge_expired'
+  | 'challenge_not_yet_valid'
   | 'message_mismatch'
   | 'chain_mismatch'
   | 'siwe_validation_failed'

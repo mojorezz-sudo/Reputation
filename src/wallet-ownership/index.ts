@@ -6,6 +6,8 @@ export {
 } from './challenge.js'
 export { InMemoryOwnershipChallengeStore } from './store.js'
 export {
+  createChainAwareMessageSignatureVerifier,
+  MAX_CHALLENGE_CLOCK_SKEW_MS,
   eoaMessageSignatureVerifier,
   verifyOwnershipProof,
   type VerifyOwnershipProofInput,
