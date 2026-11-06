@@ -13,6 +13,7 @@ import {
   presentOnchainAgeSdJwtVc,
 } from '../src/credentials/sd-jwt-vc.js'
 import { InMemoryIssuedCredentialRegistry } from '../src/issuance/index.js'
+import { InMemoryDerivedCredentialStatusRegistry } from '../src/credentials/derived-status.js'
 import {
   createAttestedOpenId4VpRequest,
   createEncryptedDirectPostResponse,
@@ -43,7 +44,7 @@ async function fixture() {
   const holderJwk = await exportJWK(holder.publicKey)
   const encJwk = { ...await exportJWK(enc.publicKey), kid: 'enc-1', alg: 'ECDH-ES', use: 'enc' }
   const sourceRegistry = new InMemoryIssuedCredentialRegistry()
-  const credentialRegistry = new InMemoryIssuedCredentialRegistry()
+  const credentialRegistry = new InMemoryDerivedCredentialStatusRegistry(sourceRegistry)
 
   const model: OnchainAgeCredential = {
     '@context': [VC_V2_CONTEXT, REPUTATION_VC_CONTEXT],
