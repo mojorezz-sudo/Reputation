@@ -209,6 +209,8 @@ export class RedisOpenId4VpTransactionStore implements OpenId4VpTransactionStore
       nonce: v.nonce, clientId: v.clientId, responseUri: v.responseUri,
       initiatedBySession: v.initiatedBySession,
       issuedAt: v.issuedAt, expiresAt: v.expiresAt,
+      ...(v.format === 'dc+sd-jwt' ? { format: 'dc+sd-jwt' as const } :
+        v.format === 'jwt_vc_json' ? { format: 'jwt_vc_json' as const } : {}),
       policy: {
         issuer: v.policy.issuer,
         issuerKeyId: v.policy.issuerKeyId,
