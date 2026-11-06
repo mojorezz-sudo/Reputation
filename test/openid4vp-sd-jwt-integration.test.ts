@@ -175,10 +175,6 @@ describe('SD-JWT VC connected to actual signed OpenID4VP transaction', () => {
 
   test('legacy VP cannot be mislabeled as dc+sd-jwt when request selected SD-JWT', async () => {
     const x = await fixture()
-    expect(() => createEncryptedDirectPostResponse({
-      request: x.walletView,
-      jwtVpJson: x.proof,
-    })).toThrow()
     await expect(createEncryptedDirectPostResponse({
       request: x.walletView,
       jwtVpJson: x.proof,
