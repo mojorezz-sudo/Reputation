@@ -108,9 +108,9 @@ export async function issueOnchainAgeSdJwtVc(input: {
   })
   if (source.protectedHeader.kid !== input.issuerKid) throw new Error('Untrusted original credential key')
   const payload = source.payload
-  const subject = record(payload.credentialSubject)
-  const confirmation = record(payload.cnf)
-  if (!subject || !holderJwk(confirmation?.jwk) ||
+  const subject = payload.credentialSubject
+  const confirmation = payload.cnf
+  if (!record(subject) || !record(confirmation) || !holderJwk(confirmation.jwk) ||
       payload.issuer !== input.issuer ||
       typeof payload.id !== 'string' || payload.id !== payload.jti ||
       subject.primitive !== 'OnchainAge' ||
@@ -130,8 +130,8 @@ export async function issueOnchainAgeSdJwtVc(input: {
   })
   if (sourceStatus !== 'valid') throw new Error('Source credential revoked or status unknown')
 
-  const coverage = record(subject.sourceCoverage)
-  if (!coverage || typeof coverage.providerId !== 'string' ||
+  const coverage = subject.sourceCoverage
+  if (!record(coverage) || typeof coverage.providerId !== 'string' ||
       !coverage.providerId.trim()) throw new Error('Unverified source coverage')
 
   const [age, provider] = await Promise.all([
@@ -246,7 +246,7 @@ export async function verifyOnchainAgeSdJwtVc(
     })
     if (verified.protectedHeader.kid !== policy.issuerKid) return fail('untrusted_issuer_key')
     payload = verified.payload
-    const cnf = record(payload.cnf)
+    const cnf = payload.cnf
     if (payload.vct !== SD_JWT_VC_TYPE ||
         payload.primitive !== 'OnchainAge' ||
         payload._sd_alg !== 'sha-256' ||
@@ -254,7 +254,7 @@ export async function verifyOnchainAgeSdJwtVc(
         payload._sd.length !== 2 ||
         new Set(payload._sd).size !== 2 ||
         !payload._sd.every(d => typeof d === 'string' && /^[A-Za-z0-9_-]{43}$/.test(d)) ||
-        !holderJwk(cnf?.jwk) ||
+        !record(cnf) || !holderJwk(cnf.jwk) ||
         typeof payload.iat !== 'number' ||
         typeof payload.exp !== 'number' ||
         !Number.isSafeInteger(payload.iat) ||
