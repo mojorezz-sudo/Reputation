@@ -144,7 +144,7 @@ async function fixture() {
     clock: () => new Date(NOW),
   })
   return {
-    holder, credential, credentialRegistry, transactions, requests, walletView,
+    holder, credential, credentialRegistry, sourceRegistry, transactions, requests, walletView,
     proof, response, processor, results, issuer, enc, verifierAttestationJwt, verifier,
   }
 }
@@ -187,6 +187,14 @@ describe('SD-JWT VC connected to actual signed OpenID4VP transaction', () => {
     expect((await x.processor.processForm(x.response)).status).toBe('pending_user_confirmation')
     expect(await x.processor.processForm(x.response)).toMatchObject({
       status: 'unverifiable', reason: 'state_not_found_or_replayed',
+    })
+  })
+
+  test('replay protection cannot bypass a later source-credential revocation', async () => {
+    const x = await fixture()
+    await x.sourceRegistry.revoke(ORIGINAL_ID)
+    expect(await x.processor.processForm(x.response)).toMatchObject({
+      status: 'unverifiable', reason: 'credential_revoked',
     })
   })
 
