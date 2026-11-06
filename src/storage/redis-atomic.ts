@@ -48,12 +48,21 @@ export class RedisAtomicEnvelope {
     if (!/^[a-zA-Z0-9:_-]{3,80}$/.test(options.namespace)) {
       throw new Error('Invalid Redis namespace')
     }
-    if (options.encryptionKey.algorithm.name !== 'AES-GCM' ||
-        !options.encryptionKey.usages.includes('encrypt') ||
-        !options.encryptionKey.usages.includes('decrypt') ||
-        options.sessionBindingKey.algorithm.name !== 'HMAC' ||
-        !options.sessionBindingKey.usages.includes('sign')) {
-      throw new Error('Redis storage requires valid AEAD and session MAC keys')
+    const encryption = options.encryptionKey
+    const binding = options.sessionBindingKey
+    if (!encryption || !binding ||
+        encryption.algorithm.name !== 'AES-GCM' ||
+        !('length' in encryption.algorithm) ||
+        encryption.algorithm.length !== 256 ||
+        encryption.extractable ||
+        !encryption.usages.includes('encrypt') ||
+        !encryption.usages.includes('decrypt') ||
+        binding.algorithm.name !== 'HMAC' ||
+        !('hash' in binding.algorithm) ||
+        (binding.algorithm as HmacKeyAlgorithm).hash.name !== 'SHA-256' ||
+        binding.extractable ||
+        !binding.usages.includes('sign')) {
+      throw new Error('Redis storage requires nonextractable AES-256-GCM and HMAC-SHA256 keys')
     }
     this.#encryptionKey = options.encryptionKey
     this.#bindingKey = options.sessionBindingKey
