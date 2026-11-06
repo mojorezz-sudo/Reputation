@@ -14,6 +14,12 @@ const NONCE = 'a'.repeat(43)
 const STATE = 'b'.repeat(43)
 const CODE = 'c'.repeat(64)
 const WALLET = '0x00000000000000000000000000000000000000A1'
+const encryptionKey = await crypto.subtle.generateKey(
+  { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+)
+const sessionBindingKey = await crypto.subtle.generateKey(
+  { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['sign'],
+)
 
 /**
  * Deterministic in-process Redis *command model*, not a live Redis server
@@ -47,8 +53,7 @@ class FakeRedis implements RedisAtomicClient {
       const entry = this.values.get(redisKey)
       if (!entry || entry.until <= this.clock) return null
       const item = JSON.parse(entry.value) as Record<string, unknown>
-      if (item.holderSessionId !== command[4] &&
-          item.initiatedBySession !== command[4]) return null
+      if (item.sessionBinding !== command[4]) return null
       this.values.delete(redisKey)
       return entry.value
     }
@@ -57,7 +62,13 @@ class FakeRedis implements RedisAtomicClient {
 }
 
 function config(client: FakeRedis): RedisStoreOptions {
-  return { redis: client, namespace: 'reputation:test', clock: () => client.clock }
+  return {
+    redis: client,
+    namespace: 'reputation:test',
+    encryptionKey,
+    sessionBindingKey,
+    clock: () => client.clock,
+  }
 }
 
 function issuance() {
@@ -88,6 +99,9 @@ describe('Redis distributed atomic adapter command contracts', () => {
     expect(set[5]).toBe('NX')
     expect(set[1]).not.toContain(NONCE)
     expect(set[1]).toMatch(/^reputation:test:issue:[a-f0-9]{64}$/)
+    expect(set[2]).not.toContain(WALLET)
+    expect(set[2]).not.toContain('session-A')
+    expect(set[2]).toContain('ciphertext')
     await expect(store.save(issuance())).rejects.toThrow('Atomic store collision')
   })
 
@@ -230,6 +244,33 @@ describe('Redis distributed atomic adapter command contracts', () => {
       },
     })).rejects.toThrow('explicitly pinned')
     expect(redis.values.size).toBe(0)
+  })
+
+  test('modifying AES-GCM ciphertext fails closed and consumes the tampered nonce', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisIssuanceSessionStore(config(redis))
+    await store.save(issuance())
+    const [key, entry] = [...redis.values.entries()][0]!
+    const envelope = JSON.parse(entry.value) as { v: number; ciphertext: string; iv: string; sessionBinding: string }
+    const first = envelope.ciphertext[0]!
+    envelope.ciphertext = (first === 'A' ? 'B' : 'A') + envelope.ciphertext.slice(1)
+    redis.values.set(key, { ...entry, value: JSON.stringify(envelope) })
+    await expect(store.take(NONCE, 'session-A')).rejects.toThrow('authentication failed')
+    expect(await store.take(NONCE, 'session-A')).toBeUndefined()
+  })
+
+  test('binding tag cannot be reused across a different nonce', async () => {
+    const redis = new FakeRedis()
+    const db = new RedisAtomicEnvelope(config(redis))
+    await db.save('vp', NONCE, NOW + 60_000, { holderSessionId: 'session-A', payload: 'sensitive' })
+    const record = [...redis.values.values()][0]!.value
+    const stored = JSON.parse(record) as { sessionBinding: string; ciphertext: string }
+    expect(stored.sessionBinding).not.toContain('session-A')
+    expect(stored.ciphertext).not.toContain('sensitive')
+    expect(await db.take('vp', 'z'.repeat(43), 'session-A')).toBeUndefined()
+    expect(await db.take('vp', NONCE, 'session-A')).toEqual({
+      holderSessionId: 'session-A', payload: 'sensitive',
+    })
   })
 
   test('Redis namespace and opaque identifiers are validated before network access', async () => {
