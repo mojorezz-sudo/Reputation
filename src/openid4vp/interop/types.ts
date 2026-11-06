@@ -1,4 +1,5 @@
 import type { JWK } from 'jose'
+import type { SD_JWT_VC_TYPE } from '../../credentials/sd-jwt-vc.js'
 
 export const OID4VP_STATIC_WALLET_AUDIENCE = 'https://self-issued.me/v2'
 export const OID4VP_VC_QUERY_ID = 'onchain_age'
@@ -21,6 +22,16 @@ export type OnchainAgeDcql = Readonly<{
   }]
 }>
 
+export type SdJwtOnchainAgeDcql = Readonly<{
+  credentials: readonly [{
+    id: typeof OID4VP_VC_QUERY_ID
+    format: 'dc+sd-jwt'
+    require_cryptographic_holder_binding: true
+    meta: Readonly<{ vct_values: readonly [typeof SD_JWT_VC_TYPE] }>
+    claims: readonly [{ path: readonly ['thresholdDate'] }]
+  }]
+}>
+
 export type OpenId4VpRequestObject = Readonly<{
   client_id: string
   response_type: 'vp_token'
@@ -28,9 +39,13 @@ export type OpenId4VpRequestObject = Readonly<{
   response_uri: string
   nonce: string
   state: string
-  dcql_query: OnchainAgeDcql
+  dcql_query: OnchainAgeDcql | SdJwtOnchainAgeDcql
   client_metadata: Readonly<{
-    vp_formats_supported: Readonly<{ jwt_vc_json: Readonly<{ alg_values: readonly ['ES256'] }> }>
+    vp_formats_supported: Readonly<{ jwt_vc_json: Readonly<{ alg_values: readonly ['ES256'] }> }> |
+      Readonly<{ 'dc+sd-jwt': Readonly<{
+        'sd-jwt_alg_values': readonly ['ES256']
+        'kb-jwt_alg_values': readonly ['ES256']
+      }> }>
     encrypted_response_enc_values_supported: readonly ['A128GCM']
     jwks: Readonly<{ keys: readonly JWK[] }>
   }>
@@ -54,6 +69,8 @@ export type OpenId4VpTransaction = Readonly<{
   issuedAt: number
   expiresAt: number
   policy: TrustedOnchainAgePolicy
+  /** Immutable format selection saved with the transaction. */
+  format?: 'jwt_vc_json' | 'dc+sd-jwt'
 }>
 
 export interface OpenId4VpTransactionStore {
