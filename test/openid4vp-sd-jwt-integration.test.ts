@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { decodeJwt, exportJWK, generateKeyPair } from 'jose'
+import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from 'jose'
 import {
   ONCHAIN_AGE_CREDENTIAL_SCHEMA_VERSION,
   ONCHAIN_AGE_CREDENTIAL_TYPE,
@@ -180,6 +180,46 @@ describe('SD-JWT VC connected to actual signed OpenID4VP transaction', () => {
       request: x.walletView,
       jwtVpJson: x.proof,
     })).rejects.toThrow('format mismatch')
+  })
+
+  test('wallet refuses a signed request advertising a contradictory credential format', async () => {
+    const x = await fixture()
+    const iat = Math.floor(NOW.getTime() / 1000)
+    const contradictory = await new SignJWT({
+      ...x.walletView,
+      client_metadata: {
+        ...x.walletView.client_metadata,
+        vp_formats_supported: { jwt_vc_json: { alg_values: ['ES256'] } },
+      },
+    })
+      .setProtectedHeader({
+        alg: 'ES256',
+        typ: 'oauth-authz-req+jwt',
+        jwt: x.verifierAttestationJwt,
+      })
+      .setAudience('https://self-issued.me/v2')
+      .setIssuedAt(iat)
+      .setExpirationTime(iat + 120)
+      .sign(x.verifier.privateKey)
+
+    await expect(verifyAttestedRequestForWallet({
+      requestObjectJwt: contradictory,
+      trustedAttestorIssuer: ATTESTOR,
+      trustedAttestorPublicKey: (await generateKeyPair('ES256')).publicKey,
+      now: NOW,
+    })).rejects.toThrow()
+  })
+
+  test('server refuses non SD-JWT data delivered inside correctly encrypted dc+sd-jwt response', async () => {
+    const x = await fixture()
+    const body = await createEncryptedDirectPostResponse({
+      request: x.walletView,
+      sdJwtVcPresentation: 'legacy.jwt.without.key.binding',
+    })
+    expect(await x.processor.processForm(body)).toMatchObject({
+      status: 'unverifiable',
+      reason: 'invalid_sd_jwt_serialization',
+    })
   })
 
   test('cannot replay SD-JWT VC response with the same verifier transaction', async () => {
