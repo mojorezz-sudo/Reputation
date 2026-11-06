@@ -157,6 +157,7 @@ describe('Redis distributed atomic adapter command contracts', () => {
     const b = new RedisOpenId4VpTransactionStore({ ...config(redis), resolveIssuerKey: resolver })
     await a.save({
       state: STATE,
+      format: 'jwt_vc_json',
       nonce: NONCE,
       clientId: 'verifier_attestation:verifier.example',
       responseUri: 'https://verifier.example/response',
@@ -188,7 +189,7 @@ describe('Redis distributed atomic adapter command contracts', () => {
       ...config(redis), resolveIssuerKey: () => undefined,
     })
     await store.save({
-      state: STATE, nonce: NONCE,
+      state: STATE, format: 'jwt_vc_json', nonce: NONCE,
       clientId: 'verifier_attestation:verifier.example',
       responseUri: 'https://verifier.example/response',
       initiatedBySession: 'browser-A',
@@ -202,6 +203,33 @@ describe('Redis distributed atomic adapter command contracts', () => {
     })
     await expect(store.take(STATE)).rejects.toThrow('Pinned issuer key unavailable')
     expect(await store.take(STATE)).toBeUndefined()
+  })
+
+
+  test('does not persist a VP request without an explicit trusted credential format', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisOpenId4VpTransactionStore({
+      ...config(redis), resolveIssuerKey: () => undefined,
+    })
+    const key = (await generateKeyPair('ES256')).publicKey
+    await expect(store.save({
+      state: STATE,
+      nonce: NONCE,
+      clientId: 'verifier_attestation:verifier.example',
+      responseUri: 'https://verifier.example/response',
+      initiatedBySession: 'browser-A',
+      issuedAt: NOW,
+      expiresAt: NOW + 90_000,
+      policy: {
+        issuer: 'https://issuer.example',
+        issuerKeyId: 'key1',
+        issuerPublicKey: key,
+        chainId: 1,
+        methodologyVersion: 'onchain-age/0.1.0',
+        requiredThresholdDate: '2024-01-01T00:00:00.000Z',
+      },
+    })).rejects.toThrow('explicitly pinned')
+    expect(redis.values.size).toBe(0)
   })
 
   test('Redis namespace and opaque identifiers are validated before network access', async () => {
