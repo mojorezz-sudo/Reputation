@@ -6,6 +6,7 @@ import {
   type JWK,
 } from 'jose'
 import type { CredentialStatusChecker } from '../../verifier/types.js'
+import { verifyOnchainAgeSdJwtVc } from '../../credentials/sd-jwt-vc.js'
 import {
   OID4VP_VC_QUERY_ID,
   type OnchainAgeVpResult,
@@ -75,11 +76,18 @@ export class InMemoryVerifiedPresentationStore implements VerifiedPresentationSt
  */
 export async function createEncryptedDirectPostResponse(input: {
   request: OpenId4VpRequestObject
-  jwtVpJson: string
+  jwtVpJson?: string
+  sdJwtVcPresentation?: string
 }): Promise<string> {
   if (input.request.response_mode !== 'direct_post.jwt') {
     throw new Error('Expected direct_post.jwt')
   }
+  const isSdJwt = input.request.dcql_query.credentials[0].format === 'dc+sd-jwt'
+  if (isSdJwt === (typeof input.jwtVpJson === 'string') ||
+      isSdJwt !== (typeof input.sdJwtVcPresentation === 'string')) {
+    throw new Error('Presentation format mismatch with signed DCQL request')
+  }
+  const presentation = isSdJwt ? input.sdJwtVcPresentation! : input.jwtVpJson!
   const [encryptionKey] = input.request.client_metadata.jwks.keys
   if (!encryptionKey || encryptionKey.kty !== 'EC' ||
       encryptionKey.crv !== 'P-256' ||
@@ -90,7 +98,7 @@ export async function createEncryptedDirectPostResponse(input: {
   const key = await importJWK(encryptionKey, 'ECDH-ES')
   const plaintext = new TextEncoder().encode(JSON.stringify({
     state: input.request.state,
-    vp_token: { [OID4VP_VC_QUERY_ID]: [input.jwtVpJson] },
+    vp_token: { [OID4VP_VC_QUERY_ID]: [presentation] },
   }))
   const jwe = await new CompactEncrypt(plaintext)
     .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A128GCM', kid: encryptionKey.kid })
@@ -198,12 +206,26 @@ export class OpenId4VpDirectPostProcessor {
       return fail('invalid_dcql_response_shape')
     }
 
-    const check = await verifyJwtVcJsonPresentation({
-      vpJwt: vpToken[OID4VP_VC_QUERY_ID][0],
-      tx: transaction,
-      statusChecker: this.#statusChecker,
-      now: new Date(now),
-    })
+    const selected = vpToken[OID4VP_VC_QUERY_ID][0]
+    const check = transaction.format === 'dc+sd-jwt'
+      ? await verifyOnchainAgeSdJwtVc(selected, {
+          issuer: transaction.policy.issuer,
+          issuerKid: transaction.policy.issuerKeyId,
+          issuerPublicKey: transaction.policy.issuerPublicKey,
+          audience: transaction.clientId,
+          nonce: transaction.nonce,
+          chainId: transaction.policy.chainId,
+          methodologyVersion: transaction.policy.methodologyVersion,
+          requiredThresholdDate: transaction.policy.requiredThresholdDate,
+          now: new Date(now),
+          statusChecker: this.#statusChecker,
+        })
+      : await verifyJwtVcJsonPresentation({
+          vpJwt: selected,
+          tx: transaction,
+          statusChecker: this.#statusChecker,
+          now: new Date(now),
+        })
     if (check.status === 'not_satisfied') {
       return { status: 'not_satisfied', reason: check.reason }
     }
