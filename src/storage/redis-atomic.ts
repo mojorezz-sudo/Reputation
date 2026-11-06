@@ -147,6 +147,7 @@ export class RedisVerifiedPresentationStore implements VerifiedPresentationStore
         value.initiatedBySession !== initiatedBySession ||
         typeof value.expiresAt !== 'number' ||
         !object(value.result) || value.result.status !== 'satisfied' ||
+        typeof value.result.chainId !== 'number' ||
         !Number.isSafeInteger(value.result.chainId) ||
         typeof value.result.thresholdDate !== 'string') {
       throw new Error('Corrupt verified presentation')
