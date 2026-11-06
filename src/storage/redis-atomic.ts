@@ -132,14 +132,14 @@ export class RedisAtomicEnvelope {
     }
     let decoded: unknown
     try {
-      const iv = base64url.decode(envelope.iv)
+      const iv = Uint8Array.from(base64url.decode(envelope.iv))
       if (iv.length !== 12) throw new Error('Invalid nonce')
       const plaintext = await crypto.subtle.decrypt({
         name: 'AES-GCM',
         iv,
         additionalData: encoder.encode(key),
         tagLength: 128,
-      }, this.#encryptionKey, base64url.decode(envelope.ciphertext))
+      }, this.#encryptionKey, Uint8Array.from(base64url.decode(envelope.ciphertext)))
       decoded = JSON.parse(new TextDecoder().decode(plaintext)) as unknown
     } catch {
       throw new Error('Encrypted Redis envelope authentication failed')
