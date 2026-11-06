@@ -23,6 +23,7 @@ import {
   type SdJwtOnchainAgePolicy,
 } from '../src/credentials/sd-jwt-vc.js'
 import { InMemoryIssuedCredentialRegistry } from '../src/issuance/index.js'
+import { InMemoryDerivedCredentialStatusRegistry } from '../src/credentials/derived-status.js'
 
 const NOW = new Date('2026-11-06T20:00:00.000Z')
 const ISSUER = 'https://issuer.reputation.test'
@@ -36,7 +37,7 @@ async function setup() {
   const issuerKeys = await generateKeyPair('ES256', { extractable: true })
   const holderKeys = await generateKeyPair('ES256', { extractable: true })
   const sourceRegistry = new InMemoryIssuedCredentialRegistry()
-  const newRegistry = new InMemoryIssuedCredentialRegistry()
+  const newRegistry = new InMemoryDerivedCredentialStatusRegistry(sourceRegistry)
   const model: OnchainAgeCredential = {
     '@context': [VC_V2_CONTEXT, REPUTATION_VC_CONTEXT],
     type: ['VerifiableCredential', ONCHAIN_AGE_CREDENTIAL_TYPE],
