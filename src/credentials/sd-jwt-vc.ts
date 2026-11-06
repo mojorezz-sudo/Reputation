@@ -9,7 +9,7 @@ import {
   type JWTPayload,
 } from 'jose'
 import type { CredentialStatusChecker } from '../verifier/types.js'
-import type { IssuedCredentialRegistry } from '../issuance/secure-session.js'
+import type { DerivedCredentialStatusRegistry } from './derived-status.js'
 
 export const SD_JWT_VC_DRAFT_VERSION = 'draft-ietf-oauth-sd-jwt-vc-25' as const
 export const SD_JWT_VC_TYPE = 'https://reputation.example/vct/onchain-age-v0.1' as const
@@ -94,7 +94,7 @@ export async function issueOnchainAgeSdJwtVc(input: {
   issuerPublicKey: CryptoKey
   issuerPrivateKey: CryptoKey
   sourceStatusChecker: CredentialStatusChecker
-  newStatusRegistry: IssuedCredentialRegistry
+  newStatusRegistry: DerivedCredentialStatusRegistry
   now: Date
 }): Promise<IssuedSdJwtVc> {
   if (!input.sourceVc2Jwt || input.sourceVc2Jwt.length > MAX_TOKEN_SIZE ||
@@ -162,7 +162,8 @@ export async function issueOnchainAgeSdJwtVc(input: {
 
   // Registry ID is not included in the signed token or presentations.
   const credentialId = 'urn:uuid:' + crypto.randomUUID()
-  await input.newStatusRegistry.recordIssued({
+  await input.newStatusRegistry.recordDerived({
+    sourceVc2Jwt: input.sourceVc2Jwt,
     credentialJwt: issuerJwt,
     issuer: input.issuer,
     issuerKeyId: input.issuerKid,
