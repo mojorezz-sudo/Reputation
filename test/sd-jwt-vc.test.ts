@@ -265,6 +265,15 @@ describe('RFC9901 SD-JWT VC draft-25 proof of concept', () => {
     })).rejects.toThrow('Source credential revoked')
   })
 
+  test('revoking the source invalidates an already-issued derived credential', async () => {
+    const x = await setup()
+    expect((await verifyOnchainAgeSdJwtVc(x.presentation, x.policy)).status).toBe('satisfied')
+    await x.sourceRegistry.revoke(ORIGINAL_ID)
+    expect(await verifyOnchainAgeSdJwtVc(x.presentation, x.policy)).toMatchObject({
+      status: 'unverifiable', reason: 'credential_revoked',
+    })
+  })
+
   test('new credential can be revoked independently from original', async () => {
     const x = await setup()
     expect((await verifyOnchainAgeSdJwtVc(x.presentation, x.policy)).status).toBe('satisfied')
