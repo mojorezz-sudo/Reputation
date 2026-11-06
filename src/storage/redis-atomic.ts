@@ -147,7 +147,7 @@ export class RedisVerifiedPresentationStore implements VerifiedPresentationStore
         value.initiatedBySession !== initiatedBySession ||
         typeof value.expiresAt !== 'number' ||
         !object(value.result) || value.result.status !== 'satisfied' ||
-        typeof value.result.chainId !== 'number' ||
+        !Number.isSafeInteger(value.result.chainId) ||
         typeof value.result.thresholdDate !== 'string') {
       throw new Error('Corrupt verified presentation')
     }
@@ -181,6 +181,9 @@ export class RedisOpenId4VpTransactionStore implements OpenId4VpTransactionStore
 
   async save(tx: OpenId4VpTransaction): Promise<void> {
     const { issuerPublicKey: _key, ...serializablePolicy } = tx.policy
+    if (tx.format !== 'jwt_vc_json' && tx.format !== 'dc+sd-jwt') {
+      throw new Error('VP credential format must be explicitly pinned')
+    }
     await this.#db.save('vp', tx.state, tx.expiresAt, {
       ...tx,
       policy: serializablePolicy,
@@ -199,7 +202,8 @@ export class RedisOpenId4VpTransactionStore implements OpenId4VpTransactionStore
         typeof v.policy.issuerKeyId !== 'string' ||
         typeof v.policy.chainId !== 'number' ||
         typeof v.policy.methodologyVersion !== 'string' ||
-        typeof v.policy.requiredThresholdDate !== 'string') {
+        typeof v.policy.requiredThresholdDate !== 'string' ||
+        (v.format !== 'jwt_vc_json' && v.format !== 'dc+sd-jwt')) {
       throw new Error('Corrupt VP transaction')
     }
     const key = await this.#resolve(v.policy.issuer, v.policy.issuerKeyId)
